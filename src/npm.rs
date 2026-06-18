@@ -1,4 +1,5 @@
 use crate::api::*;
+use crate::display::{health_color, is_stale};
 use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
 use chrono::{Utc, NaiveDate};
 use serde::Deserialize;
@@ -41,19 +42,6 @@ struct NpmRepo {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-fn health_color(health: &str) -> &str {
-    match health {
-        "✅" => "\x1b[32m",
-        "⚠️" => "\x1b[33m",
-        "🔴" | "🪦" => "\x1b[31m",
-        _ => "\x1b[90m",
-    }
-}
-
-fn is_stale(health: &str) -> bool {
-    health == "🪦" || health == "🔴" || health == "⚠️" || health == "❓"
-}
 
 fn clean_github_url(raw: &str) -> &str {
     let s = raw.trim_start_matches("git+");
@@ -195,90 +183,6 @@ fn fetch_npm_info(name: &str) -> Result<NpmRegistryResponse, String> {
 }
 
 // ── Public entry point ───────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_clean_github_url_git_https() {
-        assert_eq!(
-            clean_github_url("git+https://github.com/owner/repo.git"),
-            "https://github.com/owner/repo"
-        );
-    }
-
-    #[test]
-    fn test_clean_github_url_git_protocol() {
-        assert_eq!(
-            clean_github_url("git://github.com/owner/repo.git"),
-            "git://github.com/owner/repo"
-        );
-    }
-
-    #[test]
-    fn test_clean_github_url_no_git_prefix() {
-        assert_eq!(
-            clean_github_url("https://github.com/owner/repo"),
-            "https://github.com/owner/repo"
-        );
-    }
-
-    #[test]
-    fn test_extract_npm_deps_v3_format() {
-        let lock = NpmLock {
-            packages: Some(HashMap::from([
-                ("node_modules/foo".into(), NpmPkg { version: Some("1.0.0".into()) }),
-                ("node_modules/bar".into(), NpmPkg { version: Some("2.0.0".into()) }),
-                ("".into(), NpmPkg { version: Some("1.0.0".into()) }), // root = skip
-            ])),
-            dependencies: None,
-        };
-        let deps = extract_npm_deps(&lock);
-        assert_eq!(deps.len(), 2);
-        assert!(deps.contains(&("foo".into(), "1.0.0".into())));
-        assert!(deps.contains(&("bar".into(), "2.0.0".into())));
-    }
-
-    #[test]
-    fn test_extract_npm_deps_v1_format() {
-        let lock = NpmLock {
-            packages: None,
-            dependencies: Some(HashMap::from([
-                ("foo".into(), NpmDep { version: "1.0.0".into() }),
-                ("bar".into(), NpmDep { version: "2.0.0".into() }),
-            ])),
-        };
-        let deps = extract_npm_deps(&lock);
-        assert_eq!(deps.len(), 2);
-        assert!(deps.contains(&("foo".into(), "1.0.0".into())));
-        assert!(deps.contains(&("bar".into(), "2.0.0".into())));
-    }
-
-    #[test]
-    fn test_extract_npm_deps_empty() {
-        let lock = NpmLock {
-            packages: Some(HashMap::new()),
-            dependencies: None,
-        };
-        let deps = extract_npm_deps(&lock);
-        assert!(deps.is_empty());
-    }
-
-    #[test]
-    fn test_extract_npm_deps_nested_not_deduped() {
-        let lock = NpmLock {
-            packages: Some(HashMap::from([
-                ("node_modules/foo".into(), NpmPkg { version: Some("1.0.0".into()) }),
-                ("node_modules/other/node_modules/foo".into(), NpmPkg { version: Some("2.0.0".into()) }),
-            ])),
-            dependencies: None,
-        };
-        // Nested node_modules are different versions, keep both
-        let deps = extract_npm_deps(&lock);
-        assert_eq!(deps.len(), 2);
-    }
-}
 
 pub fn scan_npm_deps(stale_only: bool, output_json: bool) {
     let lock_path = "package-lock.json";
@@ -441,5 +345,89 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool) {
             "\x1b[1m📊 Summary:\x1b[0m \x1b[32m✅ {}\x1b[0m  \x1b[33m⚠️ {}\x1b[0m  \x1b[31m🔴 {}\x1b[0m  \x1b[31m🪦 {}\x1b[0m  \x1b[90m❓ {}\x1b[0m",
             h, w, i, d, u
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clean_github_url_git_https() {
+        assert_eq!(
+            clean_github_url("git+https://github.com/owner/repo.git"),
+            "https://github.com/owner/repo"
+        );
+    }
+
+    #[test]
+    fn test_clean_github_url_git_protocol() {
+        assert_eq!(
+            clean_github_url("git://github.com/owner/repo.git"),
+            "git://github.com/owner/repo"
+        );
+    }
+
+    #[test]
+    fn test_clean_github_url_no_git_prefix() {
+        assert_eq!(
+            clean_github_url("https://github.com/owner/repo"),
+            "https://github.com/owner/repo"
+        );
+    }
+
+    #[test]
+    fn test_extract_npm_deps_v3_format() {
+        let lock = NpmLock {
+            packages: Some(HashMap::from([
+                ("node_modules/foo".into(), NpmPkg { version: Some("1.0.0".into()) }),
+                ("node_modules/bar".into(), NpmPkg { version: Some("2.0.0".into()) }),
+                ("".into(), NpmPkg { version: Some("1.0.0".into()) }), // root = skip
+            ])),
+            dependencies: None,
+        };
+        let deps = extract_npm_deps(&lock);
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&("foo".into(), "1.0.0".into())));
+        assert!(deps.contains(&("bar".into(), "2.0.0".into())));
+    }
+
+    #[test]
+    fn test_extract_npm_deps_v1_format() {
+        let lock = NpmLock {
+            packages: None,
+            dependencies: Some(HashMap::from([
+                ("foo".into(), NpmDep { version: "1.0.0".into() }),
+                ("bar".into(), NpmDep { version: "2.0.0".into() }),
+            ])),
+        };
+        let deps = extract_npm_deps(&lock);
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&("foo".into(), "1.0.0".into())));
+        assert!(deps.contains(&("bar".into(), "2.0.0".into())));
+    }
+
+    #[test]
+    fn test_extract_npm_deps_empty() {
+        let lock = NpmLock {
+            packages: Some(HashMap::new()),
+            dependencies: None,
+        };
+        let deps = extract_npm_deps(&lock);
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_extract_npm_deps_nested_not_deduped() {
+        let lock = NpmLock {
+            packages: Some(HashMap::from([
+                ("node_modules/foo".into(), NpmPkg { version: Some("1.0.0".into()) }),
+                ("node_modules/other/node_modules/foo".into(), NpmPkg { version: Some("2.0.0".into()) }),
+            ])),
+            dependencies: None,
+        };
+        // Nested node_modules are different versions, keep both
+        let deps = extract_npm_deps(&lock);
+        assert_eq!(deps.len(), 2);
     }
 }

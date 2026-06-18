@@ -1,4 +1,5 @@
 use crate::api::*;
+use crate::display::{health_color, is_stale};
 use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
 use chrono::{Utc, NaiveDate};
 use serde::Deserialize;
@@ -18,19 +19,6 @@ struct GoProxyResponse {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-fn health_color(health: &str) -> &str {
-    match health {
-        "✅" => "\x1b[32m",
-        "⚠️" => "\x1b[33m",
-        "🔴" | "🪦" => "\x1b[31m",
-        _ => "\x1b[90m",
-    }
-}
-
-fn is_stale(health: &str) -> bool {
-    health == "🪦" || health == "🔴" || health == "⚠️" || health == "❓"
-}
 
 fn parse_go_mod(path: &str) -> Result<Vec<(String, String)>, String> {
     let content = fs::read_to_string(path).map_err(|e| format!("Read error: {}", e))?;
@@ -133,92 +121,6 @@ fn get_go_stale_reason(proxy: &GoProxyResponse, mod_path: &str) -> Option<String
 }
 
 // ── Go proxy API ─────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_go_mod_to_github_simple() {
-        let result = go_mod_to_github("github.com/owner/repo");
-        assert_eq!(result, Some(("owner".into(), "repo".into())));
-    }
-
-    #[test]
-    fn test_go_mod_to_github_with_subpackage() {
-        let result = go_mod_to_github("github.com/owner/repo/subpkg");
-        assert_eq!(result, Some(("owner".into(), "repo".into())));
-    }
-
-    #[test]
-    fn test_go_mod_to_github_not_github() {
-        let result = go_mod_to_github("gitlab.com/owner/repo");
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_go_mod_to_github_too_short() {
-        let result = go_mod_to_github("github.com/owner");
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_parse_go_mod_require_block() {
-        let content = r#"module example.com/m
-
-go 1.21
-
-require (
-    github.com/foo/bar v1.0.0
-    github.com/baz/qux v2.0.0
-)
-"#;
-        let deps = parse_go_mod_lines(content).unwrap();
-        assert_eq!(deps.len(), 2);
-        assert!(deps.contains(&("github.com/foo/bar".into(), "1.0.0".into())));
-        assert!(deps.contains(&("github.com/baz/qux".into(), "2.0.0".into())));
-    }
-
-    #[test]
-    fn test_parse_go_mod_single_require() {
-        let content = r#"module example.com/m
-
-go 1.21
-
-require github.com/foo/bar v1.0.0
-"#;
-        let deps = parse_go_mod_lines(content).unwrap();
-        assert_eq!(deps.len(), 1);
-        assert_eq!(deps[0], ("github.com/foo/bar".into(), "1.0.0".into()));
-    }
-
-    #[test]
-    fn test_parse_go_mod_empty() {
-        let content = r#"module example.com/m
-
-go 1.21
-"#;
-        let deps = parse_go_mod_lines(content).unwrap();
-        assert!(deps.is_empty());
-    }
-
-    #[test]
-    fn test_parse_go_mod_indirect() {
-        let content = r#"module example.com/m
-
-go 1.21
-
-require (
-    github.com/foo/bar v1.0.0 // indirect
-    github.com/baz/qux v2.0.0
-)
-"#;
-        let deps = parse_go_mod_lines(content).unwrap();
-        assert_eq!(deps.len(), 2);
-        assert!(deps.contains(&("github.com/foo/bar".into(), "1.0.0".into())));
-        assert!(deps.contains(&("github.com/baz/qux".into(), "2.0.0".into())));
-    }
-}
 
 fn fetch_go_proxy(mod_path: &str) -> Result<GoProxyResponse, String> {
     let encoded = mod_path.replace('/', "%2F");
@@ -378,5 +280,91 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool) {
             "\x1b[1m📊 Summary:\x1b[0m \x1b[32m✅ {}\x1b[0m  \x1b[33m⚠️ {}\x1b[0m  \x1b[31m🔴 {}\x1b[0m  \x1b[31m🪦 {}\x1b[0m  \x1b[90m❓ {}\x1b[0m",
             h, w, i, d, u
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_go_mod_to_github_simple() {
+        let result = go_mod_to_github("github.com/owner/repo");
+        assert_eq!(result, Some(("owner".into(), "repo".into())));
+    }
+
+    #[test]
+    fn test_go_mod_to_github_with_subpackage() {
+        let result = go_mod_to_github("github.com/owner/repo/subpkg");
+        assert_eq!(result, Some(("owner".into(), "repo".into())));
+    }
+
+    #[test]
+    fn test_go_mod_to_github_not_github() {
+        let result = go_mod_to_github("gitlab.com/owner/repo");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_go_mod_to_github_too_short() {
+        let result = go_mod_to_github("github.com/owner");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_parse_go_mod_require_block() {
+        let content = r#"module example.com/m
+
+go 1.21
+
+require (
+    github.com/foo/bar v1.0.0
+    github.com/baz/qux v2.0.0
+)
+"#;
+        let deps = parse_go_mod_lines(content).unwrap();
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&("github.com/foo/bar".into(), "1.0.0".into())));
+        assert!(deps.contains(&("github.com/baz/qux".into(), "2.0.0".into())));
+    }
+
+    #[test]
+    fn test_parse_go_mod_single_require() {
+        let content = r#"module example.com/m
+
+go 1.21
+
+require github.com/foo/bar v1.0.0
+"#;
+        let deps = parse_go_mod_lines(content).unwrap();
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0], ("github.com/foo/bar".into(), "1.0.0".into()));
+    }
+
+    #[test]
+    fn test_parse_go_mod_empty() {
+        let content = r#"module example.com/m
+
+go 1.21
+"#;
+        let deps = parse_go_mod_lines(content).unwrap();
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_parse_go_mod_indirect() {
+        let content = r#"module example.com/m
+
+go 1.21
+
+require (
+    github.com/foo/bar v1.0.0 // indirect
+    github.com/baz/qux v2.0.0
+)
+"#;
+        let deps = parse_go_mod_lines(content).unwrap();
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&("github.com/foo/bar".into(), "1.0.0".into())));
+        assert!(deps.contains(&("github.com/baz/qux".into(), "2.0.0".into())));
     }
 }

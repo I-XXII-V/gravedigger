@@ -35,7 +35,7 @@ pub fn get_health(pkg: &AurPackage) -> &str {
     "❓"
 }
 
-fn health_color(health: &str) -> &str {
+pub fn health_color(health: &str) -> &str {
     match health {
         "✅" => GREEN,
         "⚠️" => YELLOW,
@@ -46,6 +46,18 @@ fn health_color(health: &str) -> &str {
 
 pub fn is_stale(health: &str) -> bool {
     health == "🪦" || health == "🔴" || health == "⚠️" || health == "❓"
+}
+
+pub fn fmt_downloads(n: u64) -> String {
+    if n >= 1_000_000_000 {
+        format!("{:.1}B", n as f64 / 1_000_000_000.0)
+    } else if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
 }
 
 fn get_stale_reason(pkg: &AurPackage) -> Option<String> {
@@ -506,5 +518,40 @@ mod tests {
     #[test]
     fn test_health_color_unknown() {
         assert_eq!(health_color("❓"), "\x1b[90m");
+    }
+
+    #[test]
+    fn test_fmt_downloads_billions() {
+        assert_eq!(fmt_downloads(1_500_000_000), "1.5B");
+    }
+
+    #[test]
+    fn test_fmt_downloads_millions() {
+        assert_eq!(fmt_downloads(12_300_000), "12.3M");
+    }
+
+    #[test]
+    fn test_fmt_downloads_thousands() {
+        assert_eq!(fmt_downloads(4_567_000), "4.6M");
+    }
+
+    #[test]
+    fn test_fmt_downloads_hundreds() {
+        assert_eq!(fmt_downloads(999), "999");
+    }
+
+    #[test]
+    fn test_fmt_downloads_zero() {
+        assert_eq!(fmt_downloads(0), "0");
+    }
+
+    #[test]
+    fn test_fmt_downloads_exact_million() {
+        assert_eq!(fmt_downloads(1_000_000), "1.0M");
+    }
+
+    #[test]
+    fn test_fmt_downloads_exact_billion() {
+        assert_eq!(fmt_downloads(1_000_000_000), "1.0B");
     }
 }

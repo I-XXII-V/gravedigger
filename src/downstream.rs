@@ -1,3 +1,4 @@
+use crate::display::fmt_downloads;
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -58,18 +59,6 @@ fn fetch_crate_rev_deps(name: &str) -> Result<CrateRevDeps, String> {
 
     serde_json::from_str(&text)
         .map_err(|e| format!("JSON error: {}", e))
-}
-
-fn fmt_downloads(n: u64) -> String {
-    if n >= 1_000_000_000 {
-        format!("{:.1}B", n as f64 / 1_000_000_000.0)
-    } else if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if n >= 1_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else {
-        n.to_string()
-    }
 }
 
 // ── Public entry point ───────────────────────────────────────────────

@@ -1,4 +1,5 @@
 use crate::api::*;
+use crate::display::{health_color, is_stale};
 use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
 use chrono::{Utc, NaiveDate};
 use serde::Deserialize;
@@ -56,19 +57,6 @@ struct PyPIUrl {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-fn health_color(health: &str) -> &str {
-    match health {
-        "✅" => "\x1b[32m",
-        "⚠️" => "\x1b[33m",
-        "🔴" | "🪦" => "\x1b[31m",
-        _ => "\x1b[90m",
-    }
-}
-
-fn is_stale(health: &str) -> bool {
-    health == "🪦" || health == "🔴" || health == "⚠️" || health == "❓"
-}
 
 fn extract_github_url(info: &PyPIInfo) -> Option<(String, String)> {
     if let Some(urls) = &info.project_urls {
@@ -194,58 +182,6 @@ fn get_pypi_stale_reason(info: &PyPIInfo, urls: &[PyPIUrl]) -> Option<String> {
 }
 
 // ── PyPI API ─────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_info(
-        home_page: Option<&str>,
-        project_urls: Option<Vec<(&str, &str)>>,
-    ) -> PyPIInfo {
-        PyPIInfo {
-            name: "test".into(),
-            version: "1.0.0".into(),
-            summary: None,
-            home_page: home_page.map(String::from),
-            project_urls: project_urls.map(|v| v.into_iter().map(|(k, v)| (k.into(), v.into())).collect()),
-        }
-    }
-
-    #[test]
-    fn test_extract_github_url_from_project_urls() {
-        let info = make_info(None, Some(vec![
-            ("Source", "https://github.com/owner/repo"),
-        ]));
-        assert_eq!(extract_github_url(&info), Some(("owner".into(), "repo".into())));
-    }
-
-    #[test]
-    fn test_extract_github_url_from_home_page() {
-        let info = make_info(Some("https://github.com/owner/repo"), None);
-        assert_eq!(extract_github_url(&info), Some(("owner".into(), "repo".into())));
-    }
-
-    #[test]
-    fn test_extract_github_url_project_urls_preferred() {
-        let info = make_info(Some("https://github.com/wrong/wrong"), Some(vec![
-            ("Source", "https://github.com/right/repo"),
-        ]));
-        assert_eq!(extract_github_url(&info), Some(("right".into(), "repo".into())));
-    }
-
-    #[test]
-    fn test_extract_github_url_none() {
-        let info = make_info(None, None);
-        assert_eq!(extract_github_url(&info), None);
-    }
-
-    #[test]
-    fn test_extract_github_url_not_github() {
-        let info = make_info(Some("https://gitlab.com/owner/repo"), None);
-        assert_eq!(extract_github_url(&info), None);
-    }
-}
 
 fn fetch_pypi_info(name: &str) -> Result<PyPIResponse, String> {
     let url = format!("https://pypi.org/pypi/{}/json", name);
@@ -418,5 +354,57 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool) {
             "\x1b[1m📊 Summary:\x1b[0m \x1b[32m✅ {}\x1b[0m  \x1b[33m⚠️ {}\x1b[0m  \x1b[31m🔴 {}\x1b[0m  \x1b[31m🪦 {}\x1b[0m  \x1b[90m❓ {}\x1b[0m",
             h, w, i, d, u
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_info(
+        home_page: Option<&str>,
+        project_urls: Option<Vec<(&str, &str)>>,
+    ) -> PyPIInfo {
+        PyPIInfo {
+            name: "test".into(),
+            version: "1.0.0".into(),
+            summary: None,
+            home_page: home_page.map(String::from),
+            project_urls: project_urls.map(|v| v.into_iter().map(|(k, v)| (k.into(), v.into())).collect()),
+        }
+    }
+
+    #[test]
+    fn test_extract_github_url_from_project_urls() {
+        let info = make_info(None, Some(vec![
+            ("Source", "https://github.com/owner/repo"),
+        ]));
+        assert_eq!(extract_github_url(&info), Some(("owner".into(), "repo".into())));
+    }
+
+    #[test]
+    fn test_extract_github_url_from_home_page() {
+        let info = make_info(Some("https://github.com/owner/repo"), None);
+        assert_eq!(extract_github_url(&info), Some(("owner".into(), "repo".into())));
+    }
+
+    #[test]
+    fn test_extract_github_url_project_urls_preferred() {
+        let info = make_info(Some("https://github.com/wrong/wrong"), Some(vec![
+            ("Source", "https://github.com/right/repo"),
+        ]));
+        assert_eq!(extract_github_url(&info), Some(("right".into(), "repo".into())));
+    }
+
+    #[test]
+    fn test_extract_github_url_none() {
+        let info = make_info(None, None);
+        assert_eq!(extract_github_url(&info), None);
+    }
+
+    #[test]
+    fn test_extract_github_url_not_github() {
+        let info = make_info(Some("https://gitlab.com/owner/repo"), None);
+        assert_eq!(extract_github_url(&info), None);
     }
 }

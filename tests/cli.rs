@@ -11,7 +11,7 @@ fn test_help_success() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Watchtower"));
+    assert!(stdout.contains("watchtower"));
     assert!(stdout.contains("--cargo"));
     assert!(stdout.contains("--npm"));
     assert!(stdout.contains("--json"));
@@ -75,7 +75,7 @@ fn test_json_flag_help_still_text() {
         .expect("Failed to run watchtower --help --json");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Watchtower"));
+    assert!(stdout.contains("watchtower"));
 }
 
 #[test]

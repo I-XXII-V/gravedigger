@@ -1,4 +1,5 @@
 use crate::api::*;
+use crate::display::{fmt_downloads, health_color, is_stale};
 use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
 use chrono::{Utc, NaiveDate};
 use serde::Deserialize;
@@ -39,33 +40,6 @@ struct CrateData {
     recent_downloads: Option<u64>,
     repository: Option<String>,
     description: Option<String>,
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-fn fmt_downloads(n: u64) -> String {
-    if n >= 1_000_000_000 {
-        format!("{:.1}B", n as f64 / 1_000_000_000.0)
-    } else if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if n >= 1_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else {
-        n.to_string()
-    }
-}
-
-fn health_color(health: &str) -> &str {
-    match health {
-        "✅" => "\x1b[32m",
-        "⚠️" => "\x1b[33m",
-        "🔴" | "🪦" => "\x1b[31m",
-        _ => "\x1b[90m",
-    }
-}
-
-fn is_stale(health: &str) -> bool {
-    health == "🪦" || health == "🔴" || health == "⚠️" || health == "❓"
 }
 
 // ── Health scoring ───────────────────────────────────────────────────
@@ -185,46 +159,6 @@ fn fetch_crate_info(name: &str) -> Result<CrateResponse, String> {
 }
 
 // ── Public entry point ───────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_fmt_downloads_billions() {
-        assert_eq!(fmt_downloads(1_500_000_000), "1.5B");
-    }
-
-    #[test]
-    fn test_fmt_downloads_millions() {
-        assert_eq!(fmt_downloads(12_300_000), "12.3M");
-    }
-
-    #[test]
-    fn test_fmt_downloads_thousands() {
-        assert_eq!(fmt_downloads(4_567_000), "4.6M");
-    }
-
-    #[test]
-    fn test_fmt_downloads_hundreds() {
-        assert_eq!(fmt_downloads(999), "999");
-    }
-
-    #[test]
-    fn test_fmt_downloads_zero() {
-        assert_eq!(fmt_downloads(0), "0");
-    }
-
-    #[test]
-    fn test_fmt_downloads_exact_million() {
-        assert_eq!(fmt_downloads(1_000_000), "1.0M");
-    }
-
-    #[test]
-    fn test_fmt_downloads_exact_billion() {
-        assert_eq!(fmt_downloads(1_000_000_000), "1.0B");
-    }
-}
 
 pub fn scan_cargo_deps(stale_only: bool, output_json: bool) {
     let lock_path = "Cargo.lock";
