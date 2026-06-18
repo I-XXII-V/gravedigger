@@ -20,7 +20,25 @@
 
 ## Installation
 
-### From source
+### Binary (GitHub Release) — easiest
+
+[Download the latest release](https://github.com/I-XXII-V/Watchtower/releases/latest) for Linux x86_64:
+
+```bash
+curl -L https://github.com/I-XXII-V/Watchtower/releases/latest/download/watchtower -o watchtower
+chmod +x watchtower
+sudo mv watchtower /usr/local/bin/
+```
+
+### AUR (Arch Linux)
+
+```bash
+yay -S watchtower
+# or
+paru -S watchtower
+```
+
+### From source (cargo)
 
 ```bash
 git clone https://github.com/I-XXII-V/Watchtower.git
@@ -31,7 +49,7 @@ sudo cp target/release/watchtower /usr/local/bin/
 
 ### Requirements
 
-- Rust 2021 edition (1.85+)
+- Rust 2021 edition (1.85+) — only needed for source builds
 - `pacman` (for AUR scanning on Arch Linux)
 - Internet connection for upstream API queries
 
