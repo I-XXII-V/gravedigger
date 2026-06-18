@@ -1,5 +1,7 @@
 mod api;
+mod cargo;
 mod display;
+mod npm;
 
 use std::process;
 use crate::display::*;
@@ -14,6 +16,8 @@ fn print_usage() {
     println!();
     println!("Options:");
     println!("  -a, --aur <QUERY>    Search AUR packages with health data");
+    println!("  -c, --cargo          Scan Cargo.lock dependencies");
+    println!("  -n, --npm            Scan package-lock.json dependencies");
     println!("  -s, --stale          Show only unhealthy/stale packages");
     println!("  -h, --help           Show this help message");
     println!();
@@ -38,6 +42,18 @@ fn main() {
     }
 
     let arg = &args[1];
+
+    if arg == "--cargo" || arg == "-c" {
+        let stale = args.len() >= 3 && (args[2] == "--stale" || args[2] == "-s");
+        cargo::scan_cargo_deps(stale);
+        return;
+    }
+
+    if arg == "--npm" || arg == "-n" {
+        let stale = args.len() >= 3 && (args[2] == "--stale" || args[2] == "-s");
+        npm::scan_npm_deps(stale);
+        return;
+    }
 
     if arg == "--aur" || arg == "-a" {
         if args.len() < 3 {
