@@ -4,6 +4,7 @@ use crate::osv;
 use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
 use chrono::{Utc, NaiveDate};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -41,6 +42,7 @@ struct CrateData {
     recent_downloads: Option<u64>,
     repository: Option<String>,
     description: Option<String>,
+    license: Option<String>,
 }
 
 // ── Health scoring ───────────────────────────────────────────────────
@@ -161,7 +163,7 @@ fn fetch_crate_info(name: &str) -> Result<CrateResponse, String> {
 
 // ── Public entry point ───────────────────────────────────────────────
 
-pub fn scan_cargo_deps(stale_only: bool, output_json: bool) {
+pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool) {
     let lock_path = "Cargo.lock";
 
     if fs::metadata(lock_path).is_err() {
@@ -221,12 +223,14 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool) {
     let count_cves = &AtomicU32::new(0);
 
     let results: Arc<Mutex<Vec<PackageResult>>> = Arc::new(Mutex::new(Vec::new()));
+    let licenses_map: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
 
     thread::scope(|s| {
         for pkg in &registry_deps {
             let name = pkg.name.clone();
             let version = pkg.version.clone();
             let results = Arc::clone(&results);
+            let licenses_map = Arc::clone(&licenses_map);
             s.spawn(move || {
                 match fetch_crate_info(&name) {
                     Ok(crate_resp) => {
@@ -246,6 +250,17 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool) {
                         let n_cves = vulns.len() as u32;
                         if n_cves > 0 {
                             count_cves.fetch_add(n_cves, Ordering::Relaxed);
+                        }
+
+                        // Track license if --licenses is active
+                        if licenses {
+                            if let Some(ref lic) = data.license {
+                                let mut lm = licenses_map.lock().unwrap();
+                                *lm.entry(if lic.is_empty() { "Unknown".into() } else { lic.clone() }).or_insert(0) += 1;
+                            } else {
+                                let mut lm = licenses_map.lock().unwrap();
+                                *lm.entry("Unknown".into()).or_insert(0) += 1;
+                            }
                         }
 
                         // Show if stale OR has CVEs (when --stale is active)
@@ -374,5 +389,21 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool) {
             "\x1b[1m📊 Summary:\x1b[0m \x1b[32m✅ {}\x1b[0m  \x1b[33m⚠️ {}\x1b[0m  \x1b[31m🔴 {}\x1b[0m  \x1b[31m🪦 {}\x1b[0m  \x1b[90m❓ {}\x1b[0m{}",
             h, w, i, d, u, cve_part
         );
+    }
+
+    if licenses {
+        let map = licenses_map.lock().unwrap();
+        let mut sorted: Vec<(String, u32)> = map.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
+        let total: u32 = map.values().sum();
+        println!("\n\x1b[1m📋 Licenses:\x1b[0m");
+        for (name, count) in &sorted {
+            let pct = (*count as f64 / total as f64) * 100.0;
+            println!("   \x1b[90m{:20}\x1b[0m {} ({:.0}%)", name, count, pct);
+        }
+    }
+
+    if ci && (d > 0 || c > 0) {
+        std::process::exit(1);
     }
 }

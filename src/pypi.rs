@@ -50,6 +50,7 @@ struct PyPIInfo {
     summary: Option<String>,
     home_page: Option<String>,
     project_urls: Option<HashMap<String, String>>,
+    license: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -205,7 +206,7 @@ fn fetch_pypi_info(name: &str) -> Result<PyPIResponse, String> {
 
 // ── Public entry point ───────────────────────────────────────────────
 
-pub fn scan_pypi_deps(stale_only: bool, output_json: bool) {
+pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool) {
     let deps = if fs::metadata("poetry.lock").is_ok() {
         match parse_poetry_lock("poetry.lock") {
             Ok(d) => {
@@ -259,12 +260,14 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool) {
     let count_cves = &AtomicU32::new(0);
 
     let results: Arc<Mutex<Vec<PackageResult>>> = Arc::new(Mutex::new(Vec::new()));
+    let licenses_map: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
 
     thread::scope(|s| {
         for (name, version) in &deps {
             let pkg_name = name.clone();
             let pkg_version = version.clone();
             let results = Arc::clone(&results);
+            let licenses_map = Arc::clone(&licenses_map);
             s.spawn(move || match fetch_pypi_info(&pkg_name) {
                 Ok(resp) => {
                     let health = get_pypi_health(&resp.info, &resp.urls);
@@ -282,6 +285,17 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool) {
                     let n_cves = vulns.len() as u32;
                     if n_cves > 0 {
                         count_cves.fetch_add(n_cves, Ordering::Relaxed);
+                    }
+
+                    // Track license if --licenses is active
+                    if licenses {
+                        if let Some(ref lic) = resp.info.license {
+                            let mut lm = licenses_map.lock().unwrap();
+                            *lm.entry(if lic.is_empty() { "Unknown".into() } else { lic.clone() }).or_insert(0) += 1;
+                        } else {
+                            let mut lm = licenses_map.lock().unwrap();
+                            *lm.entry("Unknown".into()).or_insert(0) += 1;
+                        }
                     }
 
                     if stale_only && !is_stale(health) && vulns.is_empty() { return; }
@@ -399,6 +413,22 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool) {
             h, w, i, d, u, cve_part
         );
     }
+
+    if licenses {
+        let map = licenses_map.lock().unwrap();
+        let mut sorted: Vec<(String, u32)> = map.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
+        let total: u32 = map.values().sum();
+        println!("\n\x1b[1m📋 Licenses:\x1b[0m");
+        for (name, count) in &sorted {
+            let pct = (*count as f64 / total as f64) * 100.0;
+            println!("   \x1b[90m{:20}\x1b[0m {} ({:.0}%)", name, count, pct);
+        }
+    }
+
+    if ci && (d > 0 || c > 0) {
+        std::process::exit(1);
+    }
 }
 
 #[cfg(test)]
@@ -415,6 +445,7 @@ mod tests {
             summary: None,
             home_page: home_page.map(String::from),
             project_urls: project_urls.map(|v| v.into_iter().map(|(k, v)| (k.into(), v.into())).collect()),
+            license: None,
         }
     }
 

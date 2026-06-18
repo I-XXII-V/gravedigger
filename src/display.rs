@@ -121,7 +121,7 @@ struct SingleGitHubOutput {
 
 // ── Scan installed AUR packages ──────────────────────────────────────
 
-pub fn scan_installed(stale_only: bool, output_json: bool) {
+pub fn scan_installed(stale_only: bool, output_json: bool, ci: bool) {
     let output = std::process::Command::new("pacman")
         .args(["-Qm"])
         .output()
@@ -235,6 +235,10 @@ pub fn scan_installed(stale_only: bool, output_json: bool) {
         println!("{}📊 Summary:{} {}✅ {}  {}⚠️ {}  {}🔴 {}  {}🪦 {}  {}❓ {}{}",
             BOLD, RESET,
             GREEN, h, YELLOW, w, RED, i, RED, d, GRAY, u, RESET);
+    }
+
+    if ci && d > 0 {
+        std::process::exit(1);
     }
 }
 

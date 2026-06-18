@@ -146,7 +146,7 @@ fn fetch_go_proxy(mod_path: &str) -> Result<GoProxyResponse, String> {
 
 // ── Public entry point ───────────────────────────────────────────────
 
-pub fn scan_go_deps(stale_only: bool, output_json: bool) {
+pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, _licenses: bool) {
     if fs::metadata("go.mod").is_err() {
         eprintln!("❌ go.mod not found in current directory");
         return;
@@ -324,6 +324,10 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool) {
             "\x1b[1m📊 Summary:\x1b[0m \x1b[32m✅ {}\x1b[0m  \x1b[33m⚠️ {}\x1b[0m  \x1b[31m🔴 {}\x1b[0m  \x1b[31m🪦 {}\x1b[0m  \x1b[90m❓ {}\x1b[0m{}",
             h, w, i, d, u, cve_part
         );
+    }
+
+    if ci && (d > 0 || c > 0) {
+        std::process::exit(1);
     }
 }
 

@@ -51,6 +51,14 @@ struct Cli {
     #[arg(short = 's', long = "stale")]
     stale: bool,
 
+    /// CI mode: exit with code 1 if any dependency is dead or has CVEs
+    #[arg(long = "ci")]
+    ci: bool,
+
+    /// Show license breakdown for scanned packages
+    #[arg(long = "licenses")]
+    licenses: bool,
+
     /// Show detailed health info for an AUR package
     package: Option<String>,
 
@@ -80,19 +88,19 @@ fn main() {
 
     // Ecosystem scan flags
     if cli.cargo {
-        cargo::scan_cargo_deps(cli.stale, cli.json);
+        cargo::scan_cargo_deps(cli.stale, cli.json, cli.ci, cli.licenses);
         return;
     }
     if cli.npm {
-        npm::scan_npm_deps(cli.stale, cli.json);
+        npm::scan_npm_deps(cli.stale, cli.json, cli.ci, cli.licenses);
         return;
     }
     if cli.pypi {
-        pypi::scan_pypi_deps(cli.stale, cli.json);
+        pypi::scan_pypi_deps(cli.stale, cli.json, cli.ci, cli.licenses);
         return;
     }
     if cli.go {
-        golang::scan_go_deps(cli.stale, cli.json);
+        golang::scan_go_deps(cli.stale, cli.json, cli.ci, cli.licenses);
         return;
     }
 
@@ -104,7 +112,7 @@ fn main() {
 
     // --stale with no ecosystem flag → scan AUR (stale only)
     if cli.stale {
-        scan_installed(true, cli.json);
+        scan_installed(true, cli.json, cli.ci);
         return;
     }
 
@@ -115,5 +123,5 @@ fn main() {
     }
 
     // Default: scan all AUR packages
-    scan_installed(false, cli.json);
+    scan_installed(false, cli.json, cli.ci);
 }
