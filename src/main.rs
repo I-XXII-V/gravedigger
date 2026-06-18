@@ -5,12 +5,17 @@ mod downstream;
 mod golang;
 mod npm;
 mod pypi;
+mod types;
 
 use std::process;
 use crate::display::*;
 
+fn has_flag(args: &[String], short: &str, long: &str) -> bool {
+    args.iter().any(|a| a == short || a == long)
+}
+
 fn print_usage() {
-    println!("Watchtower — AUR package health checker");
+    println!("Watchtower — package health checker");
     println!();
     println!("Usage: watchtower [OPTIONS] [PACKAGE]");
     println!();
@@ -23,6 +28,7 @@ fn print_usage() {
     println!("  -n, --npm            Scan package-lock.json dependencies");
     println!("  -p, --pypi           Scan Python lockfile (poetry.lock / Pipfile.lock)");
     println!("  -g, --go             Scan Go modules (go.mod)");
+    println!("  -j, --json           Output in JSON format");
     println!("  -s, --stale          Show only unhealthy/stale packages");
     println!("  -h, --help           Show this help message");
     println!();
@@ -30,97 +36,99 @@ fn print_usage() {
     println!("  who-depends, wd <crate>  Show crates that depend on a given crate");
     println!();
     println!("Examples:");
-    println!("  watchtower               Scan all installed AUR packages");
-    println!("  watchtower --stale        Show only unhealthy packages");
-    println!("  watchtower -a neovim      Search AUR for neovim packages");
-    println!("  watchtower yay            Check health of the 'yay' package");
+    println!("  watchtower                   Scan all installed AUR packages");
+    println!("  watchtower --stale            Show only unhealthy packages");
+    println!("  watchtower -a neovim          Search AUR for neovim packages");
+    println!("  watchtower --cargo --json     Scan Cargo.lock, output JSON");
+    println!("  watchtower yay                Check health of the 'yay' package");
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    let json = has_flag(&args, "-j", "--json");
 
-    if args.len() >= 2 && (args[1] == "--help" || args[1] == "-h") {
+    if has_flag(&args, "-h", "--help") {
         print_usage();
         return;
     }
 
-    if args.len() < 2 || args[1] == "--stale" || args[1] == "-s" {
-        scan_installed(args.len() >= 2 && (args[1] == "--stale" || args[1] == "-s"));
+    // Determine the "primary" arg (first non-flag arg)
+    let primary = args.iter().skip(1).find(|a| !a.starts_with('-'));
+
+    // Handle --cargo / -c
+    if has_flag(&args, "-c", "--cargo") {
+        let stale = has_flag(&args, "-s", "--stale");
+        cargo::scan_cargo_deps(stale, json);
         return;
     }
 
-    let arg = &args[1];
-
-    if arg == "--cargo" || arg == "-c" {
-        let stale = args.len() >= 3 && (args[2] == "--stale" || args[2] == "-s");
-        cargo::scan_cargo_deps(stale);
+    // Handle --npm / -n
+    if has_flag(&args, "-n", "--npm") {
+        let stale = has_flag(&args, "-s", "--stale");
+        npm::scan_npm_deps(stale, json);
         return;
     }
 
-    if arg == "--npm" || arg == "-n" {
-        let stale = args.len() >= 3 && (args[2] == "--stale" || args[2] == "-s");
-        npm::scan_npm_deps(stale);
+    // Handle --pypi / -p
+    if has_flag(&args, "-p", "--pypi") {
+        let stale = has_flag(&args, "-s", "--stale");
+        pypi::scan_pypi_deps(stale, json);
         return;
     }
 
-    if arg == "--pypi" || arg == "-p" {
-        let stale = args.len() >= 3 && (args[2] == "--stale" || args[2] == "-s");
-        pypi::scan_pypi_deps(stale);
+    // Handle --go / -g
+    if has_flag(&args, "-g", "--go") {
+        let stale = has_flag(&args, "-s", "--stale");
+        golang::scan_go_deps(stale, json);
         return;
     }
 
-    if arg == "--go" || arg == "-g" {
-        let stale = args.len() >= 3 && (args[2] == "--stale" || args[2] == "-s");
-        golang::scan_go_deps(stale);
-        return;
-    }
-
-    if arg == "--aur" || arg == "-a" {
-        if args.len() < 3 {
-            eprintln!("❌ Usage: watchtower --aur <search-query>");
-            process::exit(1);
-        }
-        search_and_display(&args[2]);
-        return;
-    }
-
-    // Downstream mode: who-depends <package>
-    if arg == "who-depends" || arg == "wd" {
-        if args.len() < 3 {
-            eprintln!("❌ Usage: watchtower who-depends <crate-name>");
-            process::exit(1);
-        }
-        downstream::who_depends_crates(&args[2]);
-        return;
-    }
-
-    println!("🔍 Watchtower: scanning {}", arg);
-
-    let url = format!("https://aur.archlinux.org/rpc/v5/info/{}", arg);
-    match api::fetch_aur_info(&url) {
-        Ok(response) => {
-            if response.resultcount == 0 {
-                eprintln!("❌ Package '{}' not found in AUR", arg);
+    // Handle --aur / -a <query>
+    if has_flag(&args, "-a", "--aur") {
+        let query = args.iter().skip(1)
+            .position(|a| a == "-a" || a == "--aur")
+            .and_then(|pos| args.get(pos + 2))
+            .or_else(|| args.iter().skip(1).find(|a| !a.starts_with('-') && *a != "-a" && *a != "--aur"));
+        match query {
+            Some(q) => search_and_display(q, json),
+            None => {
+                eprintln!("❌ Usage: watchtower --aur <search-query>");
                 process::exit(1);
             }
-            let pkg = &response.results[0];
-            print_package_info(pkg);
+        }
+        return;
+    }
 
-            if let Some(ref upstream_url) = pkg.url {
-                if let Some((owner, repo)) = api::parse_github_repo(upstream_url) {
-                    println!("\n🐙 GitHub: {}/{}", owner, repo);
-                    match api::fetch_github_info(&owner, &repo) {
-                        Ok(gh) => print_github_info(&gh),
-                        Err(e) => eprintln!("   ❌ Fetch failed: {}", e),
-                    }
-                } else {
-                    println!("\n🐙 GitHub: not a GitHub repository");
+    // Handle --stale / -s with no other flag → scan AUR
+    if has_flag(&args, "-s", "--stale") {
+        scan_installed(true, json);
+        return;
+    }
+
+    // Handle who-depends / wd subcommand
+    if let Some(sub) = primary {
+        if sub == "who-depends" || sub == "wd" {
+            let pkg = args.iter().skip(1)
+                .position(|a| a == sub)
+                .and_then(|pos| args.get(pos + 1));
+            match pkg {
+                Some(p) => downstream::who_depends_crates(p),
+                None => {
+                    eprintln!("❌ Usage: watchtower who-depends <crate-name>");
+                    process::exit(1);
                 }
             }
-        }
-        Err(e) => {
-            eprintln!("❌ Failed to fetch AUR: {}", e);
-            process::exit(1);
+            return;
         }
     }
+
+    // No flags → scan all AUR packages
+    if primary.is_none() {
+        scan_installed(false, json);
+        return;
+    }
+
+    // Single AUR package
+    let pkg_name = primary.unwrap();
+    display::single_package_json(pkg_name, json);
 }

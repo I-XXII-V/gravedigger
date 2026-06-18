@@ -1,7 +1,9 @@
 use crate::api::*;
+use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
 use chrono::{Utc, NaiveDate};
 use serde::Deserialize;
 use std::fs;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 
@@ -25,7 +27,6 @@ struct LockPackage {
 struct CrateResponse {
     #[serde(rename = "crate")]
     crate_data: CrateData,
-    // versions is array of version IDs (integers), not objects
 }
 
 #[derive(Deserialize)]
@@ -70,7 +71,6 @@ fn is_stale(health: &str) -> bool {
 // ── Health scoring ───────────────────────────────────────────────────
 
 fn get_crate_health(data: &CrateData) -> &'static str {
-    // Check crates.io freshness
     if let Ok(updated) = NaiveDate::parse_from_str(&data.updated_at[..10], "%Y-%m-%d") {
         let days = (Utc::now().date_naive() - updated).num_days();
         if days > 730 {
@@ -82,12 +82,10 @@ fn get_crate_health(data: &CrateData) -> &'static str {
         if days > 180 {
             return "⚠️";
         }
-        // Under 180 days → check GitHub for finer detail
     } else {
         return "❓";
     }
 
-    // Check GitHub activity if repo is available
     if let Some(ref repo_url) = data.repository {
         if let Some((owner, repo)) = parse_github_repo(repo_url) {
             if let Ok(gh) = fetch_github_info(&owner, &repo) {
@@ -108,12 +106,10 @@ fn get_crate_health(data: &CrateData) -> &'static str {
         }
     }
 
-    // Recent on crates.io → good enough
     "✅"
 }
 
 fn get_crate_stale_reason(data: &CrateData) -> Option<String> {
-    // Crates.io staleness
     if let Ok(updated) = NaiveDate::parse_from_str(&data.updated_at[..10], "%Y-%m-%d") {
         let days = (Utc::now().date_naive() - updated).num_days();
         if days > 730 {
@@ -127,7 +123,6 @@ fn get_crate_stale_reason(data: &CrateData) -> Option<String> {
         }
     }
 
-    // GitHub staleness
     if let Some(ref repo_url) = data.repository {
         if let Some((owner, repo)) = parse_github_repo(repo_url) {
             match fetch_github_info(&owner, &repo) {
@@ -191,8 +186,7 @@ fn fetch_crate_info(name: &str) -> Result<CrateResponse, String> {
 
 // ── Public entry point ───────────────────────────────────────────────
 
-pub fn scan_cargo_deps(stale_only: bool) {
-    // Find Cargo.lock in current directory
+pub fn scan_cargo_deps(stale_only: bool, output_json: bool) {
     let lock_path = "Cargo.lock";
 
     if fs::metadata(lock_path).is_err() {
@@ -227,14 +221,22 @@ pub fn scan_cargo_deps(stale_only: bool) {
         .collect();
 
     if registry_deps.is_empty() {
-        println!("📦 No registry dependencies found in Cargo.lock");
+        if output_json {
+            let output = ScanOutput {
+                ecosystem: "cargo".to_string(),
+                packages: vec![],
+                summary: Summary::new(),
+            };
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        } else {
+            println!("📦 No registry dependencies found in Cargo.lock");
+        }
         return;
     }
 
-    println!(
-        "📦 Scanning {} crate dependencies from Cargo.lock\n",
-        registry_deps.len()
-    );
+    if !output_json {
+        println!("📦 Scanning {} crate dependencies from Cargo.lock\n", registry_deps.len());
+    }
 
     let count_healthy = &AtomicU32::new(0);
     let count_warning = &AtomicU32::new(0);
@@ -242,36 +244,40 @@ pub fn scan_cargo_deps(stale_only: bool) {
     let count_dead = &AtomicU32::new(0);
     let count_unknown = &AtomicU32::new(0);
 
+    let results: Arc<Mutex<Vec<PackageResult>>> = Arc::new(Mutex::new(Vec::new()));
+
     thread::scope(|s| {
         for pkg in &registry_deps {
             let name = pkg.name.clone();
             let version = pkg.version.clone();
+            let results = Arc::clone(&results);
             s.spawn(move || {
                 match fetch_crate_info(&name) {
                     Ok(crate_resp) => {
                         let data = &crate_resp.crate_data;
                         let health = get_crate_health(data);
 
-                        // Tally
                         match health {
-                            "✅" => {
-                                count_healthy.fetch_add(1, Ordering::Relaxed);
-                            }
-                            "⚠️" => {
-                                count_warning.fetch_add(1, Ordering::Relaxed);
-                            }
-                            "🔴" => {
-                                count_inactive.fetch_add(1, Ordering::Relaxed);
-                            }
-                            "🪦" => {
-                                count_dead.fetch_add(1, Ordering::Relaxed);
-                            }
-                            _ => {
-                                count_unknown.fetch_add(1, Ordering::Relaxed);
-                            }
+                            "✅" => { count_healthy.fetch_add(1, Ordering::Relaxed); }
+                            "⚠️" => { count_warning.fetch_add(1, Ordering::Relaxed); }
+                            "🔴" => { count_inactive.fetch_add(1, Ordering::Relaxed); }
+                            "🪦" => { count_dead.fetch_add(1, Ordering::Relaxed); }
+                            _ => { count_unknown.fetch_add(1, Ordering::Relaxed); }
                         }
 
-                        if stale_only && !is_stale(health) {
+                        if stale_only && !is_stale(health) { return; }
+
+                        // Collect for JSON output
+                        if output_json {
+                            let mut r = results.lock().unwrap();
+                            r.push(PackageResult {
+                                name: name.clone(),
+                                version: version.clone(),
+                                health: health_to_string(health),
+                                description: data.description.clone(),
+                                latest_version: Some(data.max_stable_version.clone()),
+                                stale_reason: get_crate_stale_reason(data),
+                            });
                             return;
                         }
 
@@ -306,7 +312,17 @@ pub fn scan_cargo_deps(stale_only: bool) {
                     }
                     Err(e) => {
                         count_unknown.fetch_add(1, Ordering::Relaxed);
-                        if !stale_only {
+                        if output_json {
+                            let mut r = results.lock().unwrap();
+                            r.push(PackageResult {
+                                name: name.clone(),
+                                version: version.clone(),
+                                health: "unknown".to_string(),
+                                description: None,
+                                latest_version: None,
+                                stale_reason: Some(e.clone()),
+                            });
+                        } else if !stale_only {
                             println!(
                                 "\x1b[90m❓ {} v{} — fetch failed: {}\x1b[0m",
                                 name, version, e
@@ -323,9 +339,20 @@ pub fn scan_cargo_deps(stale_only: bool) {
     let i = count_inactive.load(Ordering::Relaxed);
     let d = count_dead.load(Ordering::Relaxed);
     let u = count_unknown.load(Ordering::Relaxed);
-    println!();
-    println!(
-        "\x1b[1m📊 Summary:\x1b[0m \x1b[32m✅ {}\x1b[0m  \x1b[33m⚠️ {}\x1b[0m  \x1b[31m🔴 {}\x1b[0m  \x1b[31m🪦 {}\x1b[0m  \x1b[90m❓ {}\x1b[0m",
-        h, w, i, d, u
-    );
+
+    if output_json {
+        let packages = Arc::try_unwrap(results).unwrap().into_inner().unwrap();
+        let output = ScanOutput {
+            ecosystem: "cargo".to_string(),
+            packages,
+            summary: Summary { healthy: h, warning: w, inactive: i, dead: d, unknown: u },
+        };
+        println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    } else {
+        println!();
+        println!(
+            "\x1b[1m📊 Summary:\x1b[0m \x1b[32m✅ {}\x1b[0m  \x1b[33m⚠️ {}\x1b[0m  \x1b[31m🔴 {}\x1b[0m  \x1b[31m🪦 {}\x1b[0m  \x1b[90m❓ {}\x1b[0m",
+            h, w, i, d, u
+        );
+    }
 }

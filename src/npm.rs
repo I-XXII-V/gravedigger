@@ -1,8 +1,10 @@
 use crate::api::*;
+use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
 use chrono::{Utc, NaiveDate};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 
@@ -24,7 +26,6 @@ struct NpmDep {
     version: String,
 }
 
-// Fields we care about from npm registry
 #[derive(Deserialize)]
 struct NpmRegistryResponse {
     #[serde(rename = "dist-tags")]
@@ -55,9 +56,6 @@ fn is_stale(health: &str) -> bool {
 }
 
 fn clean_github_url(raw: &str) -> &str {
-    // npm stores URLs as: git+https://github.com/owner/repo.git
-    // or: git://github.com/owner/repo.git
-    // Strip git+ prefix and .git suffix
     let s = raw.trim_start_matches("git+");
     s.trim_end_matches(".git")
 }
@@ -65,16 +63,12 @@ fn clean_github_url(raw: &str) -> &str {
 fn extract_npm_deps(lock: &NpmLock) -> Vec<(String, String)> {
     let mut deps = Vec::new();
 
-    // Try v3 format (packages key)
     if let Some(packages) = &lock.packages {
         let mut seen = std::collections::HashSet::new();
         for (path, info) in packages {
-            if path.is_empty() {
-                continue;
-            }
+            if path.is_empty() { continue; }
             if let Some(version) = &info.version {
                 let name = path.trim_start_matches("node_modules/");
-                // Deduplicate: same package may appear at root + nested
                 if seen.insert(name.to_string()) {
                     deps.push((name.to_string(), version.clone()));
                 }
@@ -83,7 +77,6 @@ fn extract_npm_deps(lock: &NpmLock) -> Vec<(String, String)> {
         return deps;
     }
 
-    // Fallback to v1/v2 format (dependencies key)
     if let Some(deps_map) = &lock.dependencies {
         for (name, info) in deps_map {
             deps.push((name.clone(), info.version.clone()));
@@ -96,19 +89,12 @@ fn extract_npm_deps(lock: &NpmLock) -> Vec<(String, String)> {
 // ── Health scoring ───────────────────────────────────────────────────
 
 fn get_npm_health(data: &NpmRegistryResponse) -> &'static str {
-    // Check last modified time on npm
     if let Some(modified) = data.time.get("modified") {
         if let Ok(updated) = NaiveDate::parse_from_str(&modified[..10], "%Y-%m-%d") {
             let days = (Utc::now().date_naive() - updated).num_days();
-            if days > 730 {
-                return "🪦";
-            }
-            if days > 365 {
-                return "🔴";
-            }
-            if days > 180 {
-                return "⚠️";
-            }
+            if days > 730 { return "🪦"; }
+            if days > 365 { return "🔴"; }
+            if days > 180 { return "⚠️"; }
         } else {
             return "❓";
         }
@@ -116,7 +102,6 @@ fn get_npm_health(data: &NpmRegistryResponse) -> &'static str {
         return "❓";
     }
 
-    // Check GitHub activity if repo is available
     if let Some(repo) = &data.repository {
         if let Some(ref url) = repo.url {
             let clean = clean_github_url(url);
@@ -125,15 +110,9 @@ fn get_npm_health(data: &NpmRegistryResponse) -> &'static str {
                     let pushed = &gh.pushed_at[..10];
                     if let Ok(last) = NaiveDate::parse_from_str(pushed, "%Y-%m-%d") {
                         let days = (Utc::now().date_naive() - last).num_days();
-                        if days > 730 {
-                            return "🪦";
-                        }
-                        if days > 365 {
-                            return "🔴";
-                        }
-                        if days > 180 {
-                            return "⚠️";
-                        }
+                        if days > 730 { return "🪦"; }
+                        if days > 365 { return "🔴"; }
+                        if days > 180 { return "⚠️"; }
                     }
                 }
             }
@@ -159,7 +138,6 @@ fn get_npm_stale_reason(data: &NpmRegistryResponse) -> Option<String> {
         }
     }
 
-    // GitHub staleness
     if let Some(repo) = &data.repository {
         if let Some(ref url) = repo.url {
             let clean = clean_github_url(url);
@@ -170,10 +148,7 @@ fn get_npm_stale_reason(data: &NpmRegistryResponse) -> Option<String> {
                         if let Ok(last) = NaiveDate::parse_from_str(pushed, "%Y-%m-%d") {
                             let days = (Utc::now().date_naive() - last).num_days();
                             if days > 730 {
-                                return Some(format!(
-                                    "No GitHub activity in {} days — DEAD",
-                                    days
-                                ));
+                                return Some(format!("No GitHub activity in {} days — DEAD", days));
                             }
                             if days > 365 {
                                 return Some(format!("No GitHub activity in {} days", days));
@@ -199,7 +174,6 @@ fn get_npm_stale_reason(data: &NpmRegistryResponse) -> Option<String> {
 // ── npm registry API ────────────────────────────────────────────────
 
 fn fetch_npm_info(name: &str) -> Result<NpmRegistryResponse, String> {
-    // Scoped packages: @scope/name → @scope%2Fname
     let encoded = name.replace('/', "%2F");
     let url = format!("https://registry.npmjs.org/{}", encoded);
 
@@ -214,29 +188,18 @@ fn fetch_npm_info(name: &str) -> Result<NpmRegistryResponse, String> {
     let text = resp.text().map_err(|e| format!("Read error: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!(
-            "HTTP {} — {}",
-            status,
-            &text[..200.min(text.len())]
-        ));
+        return Err(format!("HTTP {} — {}", status, &text[..200.min(text.len())]));
     }
 
-    serde_json::from_str(&text).map_err(|e| {
-        format!(
-            "JSON error: {} — body: {}",
-            e,
-            &text[..200.min(text.len())]
-        )
-    })
+    serde_json::from_str(&text).map_err(|e| format!("JSON error: {} — body: {}", e, &text[..200.min(text.len())]))
 }
 
 // ── Public entry point ───────────────────────────────────────────────
 
-pub fn scan_npm_deps(stale_only: bool) {
+pub fn scan_npm_deps(stale_only: bool, output_json: bool) {
     let lock_path = "package-lock.json";
 
     if fs::metadata(lock_path).is_err() {
-        // Also try yarn.lock or pnpm-lock.yaml? Future scope.
         eprintln!("❌ package-lock.json not found in current directory");
         return;
     }
@@ -260,14 +223,22 @@ pub fn scan_npm_deps(stale_only: bool) {
     let deps = extract_npm_deps(&lock);
 
     if deps.is_empty() {
-        println!("📦 No dependencies found in package-lock.json");
+        if output_json {
+            let output = ScanOutput {
+                ecosystem: "npm".to_string(),
+                packages: vec![],
+                summary: Summary::new(),
+            };
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        } else {
+            println!("📦 No dependencies found in package-lock.json");
+        }
         return;
     }
 
-    println!(
-        "📦 Scanning {} npm packages from package-lock.json\n",
-        deps.len()
-    );
+    if !output_json {
+        println!("📦 Scanning {} npm packages from package-lock.json\n", deps.len());
+    }
 
     let count_healthy = &AtomicU32::new(0);
     let count_warning = &AtomicU32::new(0);
@@ -275,33 +246,37 @@ pub fn scan_npm_deps(stale_only: bool) {
     let count_dead = &AtomicU32::new(0);
     let count_unknown = &AtomicU32::new(0);
 
+    let results: Arc<Mutex<Vec<PackageResult>>> = Arc::new(Mutex::new(Vec::new()));
+
     thread::scope(|s| {
         for (name, version) in &deps {
             let pkg_name = name.clone();
             let pkg_version = version.clone();
+            let results = Arc::clone(&results);
             s.spawn(move || match fetch_npm_info(&pkg_name) {
                 Ok(reg) => {
                     let health = get_npm_health(&reg);
 
                     match health {
-                        "✅" => {
-                            count_healthy.fetch_add(1, Ordering::Relaxed);
-                        }
-                        "⚠️" => {
-                            count_warning.fetch_add(1, Ordering::Relaxed);
-                        }
-                        "🔴" => {
-                            count_inactive.fetch_add(1, Ordering::Relaxed);
-                        }
-                        "🪦" => {
-                            count_dead.fetch_add(1, Ordering::Relaxed);
-                        }
-                        _ => {
-                            count_unknown.fetch_add(1, Ordering::Relaxed);
-                        }
+                        "✅" => { count_healthy.fetch_add(1, Ordering::Relaxed); }
+                        "⚠️" => { count_warning.fetch_add(1, Ordering::Relaxed); }
+                        "🔴" => { count_inactive.fetch_add(1, Ordering::Relaxed); }
+                        "🪦" => { count_dead.fetch_add(1, Ordering::Relaxed); }
+                        _ => { count_unknown.fetch_add(1, Ordering::Relaxed); }
                     }
 
-                    if stale_only && !is_stale(health) {
+                    if stale_only && !is_stale(health) { return; }
+
+                    if output_json {
+                        let mut r = results.lock().unwrap();
+                        r.push(PackageResult {
+                            name: pkg_name.clone(),
+                            version: pkg_version.clone(),
+                            health: health_to_string(health),
+                            description: reg.description.clone(),
+                            latest_version: reg.dist_tags.get("latest").cloned(),
+                            stale_reason: get_npm_stale_reason(&reg),
+                        });
                         return;
                     }
 
@@ -334,18 +309,24 @@ pub fn scan_npm_deps(stale_only: bool) {
                         health,
                         pkg_name,
                         pkg_version,
-                        if desc.is_empty() {
-                            "no description"
-                        } else {
-                            &desc
-                        },
+                        if desc.is_empty() { "no description" } else { &desc },
                         latest,
                         stale_info
                     );
                 }
                 Err(e) => {
                     count_unknown.fetch_add(1, Ordering::Relaxed);
-                    if !stale_only {
+                    if output_json {
+                        let mut r = results.lock().unwrap();
+                        r.push(PackageResult {
+                            name: pkg_name.clone(),
+                            version: pkg_version.clone(),
+                            health: "unknown".to_string(),
+                            description: None,
+                            latest_version: None,
+                            stale_reason: Some(e.clone()),
+                        });
+                    } else if !stale_only {
                         println!(
                             "\x1b[90m❓ {} v{} — fetch failed: {}\x1b[0m",
                             pkg_name, pkg_version, e
@@ -361,9 +342,20 @@ pub fn scan_npm_deps(stale_only: bool) {
     let i = count_inactive.load(Ordering::Relaxed);
     let d = count_dead.load(Ordering::Relaxed);
     let u = count_unknown.load(Ordering::Relaxed);
-    println!();
-    println!(
-        "\x1b[1m📊 Summary:\x1b[0m \x1b[32m✅ {}\x1b[0m  \x1b[33m⚠️ {}\x1b[0m  \x1b[31m🔴 {}\x1b[0m  \x1b[31m🪦 {}\x1b[0m  \x1b[90m❓ {}\x1b[0m",
-        h, w, i, d, u
-    );
+
+    if output_json {
+        let packages = Arc::try_unwrap(results).unwrap().into_inner().unwrap();
+        let output = ScanOutput {
+            ecosystem: "npm".to_string(),
+            packages,
+            summary: Summary { healthy: h, warning: w, inactive: i, dead: d, unknown: u },
+        };
+        println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    } else {
+        println!();
+        println!(
+            "\x1b[1m📊 Summary:\x1b[0m \x1b[32m✅ {}\x1b[0m  \x1b[33m⚠️ {}\x1b[0m  \x1b[31m🔴 {}\x1b[0m  \x1b[31m🪦 {}\x1b[0m  \x1b[90m❓ {}\x1b[0m",
+            h, w, i, d, u
+        );
+    }
 }

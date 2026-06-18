@@ -1,6 +1,8 @@
 use crate::api::*;
-use chrono::Utc;
-use chrono::NaiveDate;
+use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
+use chrono::{Utc, NaiveDate};
+use serde::Serialize;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 
@@ -77,7 +79,37 @@ fn get_stale_reason(pkg: &AurPackage) -> Option<String> {
     }
 }
 
-pub fn scan_installed(stale_only: bool) {
+#[derive(Serialize)]
+struct SinglePackageOutput {
+    ecosystem: String,
+    name: String,
+    version: String,
+    description: Option<String>,
+    url: Option<String>,
+    maintainer: Option<String>,
+    numvotes: u32,
+    popularity: f64,
+    outofdate: Option<u32>,
+    lastmodified: u64,
+    health: String,
+    github: Option<SingleGitHubOutput>,
+}
+
+#[derive(Serialize)]
+struct SingleGitHubOutput {
+    owner: String,
+    repo: String,
+    stars: u32,
+    forks: u32,
+    open_issues: u32,
+    watchers: u32,
+    pushed_at: String,
+    archived: bool,
+}
+
+// ── Scan installed AUR packages ──────────────────────────────────────
+
+pub fn scan_installed(stale_only: bool, output_json: bool) {
     let output = std::process::Command::new("pacman")
         .args(["-Qm"])
         .output()
@@ -88,7 +120,9 @@ pub fn scan_installed(stale_only: bool) {
         .filter_map(|line| line.split_whitespace().next().map(String::from))
         .collect();
 
-    println!("📦 Scanning {} AUR packages...\n", packages.len());
+    if !output_json {
+        println!("📦 Scanning {} AUR packages...\n", packages.len());
+    }
 
     let count_healthy = &AtomicU32::new(0);
     let count_warning = &AtomicU32::new(0);
@@ -96,9 +130,12 @@ pub fn scan_installed(stale_only: bool) {
     let count_dead = &AtomicU32::new(0);
     let count_unknown = &AtomicU32::new(0);
 
+    let results: Arc<Mutex<Vec<PackageResult>>> = Arc::new(Mutex::new(Vec::new()));
+
     thread::scope(|s| {
         for pkg_name in &packages {
             let name = pkg_name.clone();
+            let results = Arc::clone(&results);
             s.spawn(move || {
                 let url = format!("https://aur.archlinux.org/rpc/v5/info/{}", name);
                 match fetch_aur_info(&url) {
@@ -106,7 +143,6 @@ pub fn scan_installed(stale_only: bool) {
                         let pkg = &response.results[0];
                         let health = get_health(pkg);
 
-                        // Tally health status
                         match health {
                             "✅" => { count_healthy.fetch_add(1, Ordering::Relaxed); }
                             "⚠️" => { count_warning.fetch_add(1, Ordering::Relaxed); }
@@ -116,6 +152,19 @@ pub fn scan_installed(stale_only: bool) {
                         }
 
                         if stale_only && !is_stale(health) { return; }
+
+                        if output_json {
+                            let mut r = results.lock().unwrap();
+                            r.push(PackageResult {
+                                name: pkg.name.clone(),
+                                version: pkg.version.clone(),
+                                health: health_to_string(health),
+                                description: pkg.description.clone(),
+                                latest_version: None,
+                                stale_reason: get_stale_reason(pkg),
+                            });
+                            return;
+                        }
 
                         let maintainer_str = match pkg.maintainer.as_deref() {
                             None | Some("") => format!("{}{}[ORPHANED]{}", RED, BOLD, RESET),
@@ -133,11 +182,19 @@ pub fn scan_installed(stale_only: bool) {
                             maintainer_str, pkg.popularity, stale_info);
                     }
                     _ => {
-                        // Package data unavailable — still count it as unknown
                         count_unknown.fetch_add(1, Ordering::Relaxed);
-                        if !stale_only {
-                            println!("{}❓ {} — {}fetch failed{}",
-                                GRAY, name, GRAY, RESET);
+                        if output_json {
+                            let mut r = results.lock().unwrap();
+                            r.push(PackageResult {
+                                name: name.clone(),
+                                version: "?".to_string(),
+                                health: "unknown".to_string(),
+                                description: None,
+                                latest_version: None,
+                                stale_reason: Some("AUR API fetch failed".to_string()),
+                            });
+                        } else if !stale_only {
+                            println!("{}❓ {} — {}fetch failed{}", GRAY, name, GRAY, RESET);
                         }
                     }
                 }
@@ -150,25 +207,67 @@ pub fn scan_installed(stale_only: bool) {
     let i = count_inactive.load(Ordering::Relaxed);
     let d = count_dead.load(Ordering::Relaxed);
     let u = count_unknown.load(Ordering::Relaxed);
-    println!();
-    println!("{}📊 Summary:{} {}✅ {}  {}⚠️ {}  {}🔴 {}  {}🪦 {}  {}❓ {}{}",
-        BOLD, RESET,
-        GREEN, h, YELLOW, w, RED, i, RED, d, GRAY, u, RESET);
+
+    if output_json {
+        let packages = Arc::try_unwrap(results).unwrap().into_inner().unwrap();
+        let output = ScanOutput {
+            ecosystem: "aur".to_string(),
+            packages,
+            summary: Summary { healthy: h, warning: w, inactive: i, dead: d, unknown: u },
+        };
+        println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    } else {
+        println!();
+        println!("{}📊 Summary:{} {}✅ {}  {}⚠️ {}  {}🔴 {}  {}🪦 {}  {}❓ {}{}",
+            BOLD, RESET,
+            GREEN, h, YELLOW, w, RED, i, RED, d, GRAY, u, RESET);
+    }
 }
 
-pub fn search_and_display(query: &str) {
+// ── Search AUR ───────────────────────────────────────────────────────
+
+pub fn search_and_display(query: &str, output_json: bool) {
     match search_aur(query) {
         Ok(response) => {
             if response.resultcount == 0 {
-                println!("🔍 No results for '{}'", query);
+                if output_json {
+                    let output = ScanOutput {
+                        ecosystem: "aur-search".to_string(),
+                        packages: vec![],
+                        summary: Summary::new(),
+                    };
+                    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+                } else {
+                    println!("🔍 No results for '{}'", query);
+                }
                 return;
             }
-            println!("🔍 Search results: {} ({} found)\n", query, response.resultcount);
+
+            if !output_json {
+                println!("🔍 Search results: {} ({} found)\n", query, response.resultcount);
+            }
+
+            let results: Arc<Mutex<Vec<PackageResult>>> = Arc::new(Mutex::new(Vec::new()));
 
             thread::scope(|s| {
                 for pkg in &response.results {
-                    s.spawn(|| {
+                    let results = Arc::clone(&results);
+                    s.spawn(move || {
                         let health = get_health(pkg);
+
+                        if output_json {
+                            let mut r = results.lock().unwrap();
+                            r.push(PackageResult {
+                                name: pkg.name.clone(),
+                                version: pkg.version.clone(),
+                                health: health_to_string(health),
+                                description: pkg.description.clone(),
+                                latest_version: None,
+                                stale_reason: None,
+                            });
+                            return;
+                        }
+
                         let stars = if let Some(ref url) = pkg.url {
                             if let Some((owner, repo)) = parse_github_repo(url) {
                                 if let Ok(gh) = fetch_github_info(&owner, &repo) {
@@ -185,10 +284,120 @@ pub fn search_and_display(query: &str) {
                     });
                 }
             });
+
+            if output_json {
+                let packages = Arc::try_unwrap(results).unwrap().into_inner().unwrap();
+                let output = ScanOutput {
+                    ecosystem: "aur-search".to_string(),
+                    packages,
+                    summary: Summary::new(), // no summary for search
+                };
+                println!("{}", serde_json::to_string_pretty(&output).unwrap());
+            }
         }
-        Err(e) => eprintln!("❌ Failed to search AUR: {}", e),
+        Err(e) => {
+            if output_json {
+                let output = serde_json::json!({
+                    "ecosystem": "aur-search",
+                    "error": format!("{}", e)
+                });
+                println!("{}", serde_json::to_string_pretty(&output).unwrap());
+            } else {
+                eprintln!("❌ Failed to search AUR: {}", e);
+            }
+        }
     }
 }
+
+// ── Single AUR package (JSON mode) ───────────────────────────────────
+
+pub fn single_package_json(pkg_name: &str, output_json: bool) {
+    let url = format!("https://aur.archlinux.org/rpc/v5/info/{}", pkg_name);
+    match fetch_aur_info(&url) {
+        Ok(response) => {
+            if response.resultcount == 0 {
+                if output_json {
+                    let err = serde_json::json!({
+                        "ecosystem": "aur",
+                        "error": format!("Package '{}' not found in AUR", pkg_name)
+                    });
+                    println!("{}", serde_json::to_string_pretty(&err).unwrap());
+                } else {
+                    eprintln!("❌ Package '{}' not found in AUR", pkg_name);
+                }
+                return;
+            }
+
+            let pkg = &response.results[0];
+
+            if output_json {
+                let health_emoji = get_health(pkg);
+                let health_str = health_to_string(health_emoji);
+                let gh_output = pkg.url.as_ref().and_then(|upstream_url| {
+                    parse_github_repo(upstream_url).and_then(|(owner, repo)| {
+                        match fetch_github_info(&owner, &repo) {
+                            Ok(gh) => Some(SingleGitHubOutput {
+                                owner: owner.clone(),
+                                repo: repo.clone(),
+                                stars: gh.stars,
+                                forks: gh.forks,
+                                open_issues: gh.open_issues,
+                                watchers: gh.watchers,
+                                pushed_at: gh.pushed_at,
+                                archived: gh.archived,
+                            }),
+                            Err(_) => None,
+                        }
+                    })
+                });
+
+                let output = SinglePackageOutput {
+                    ecosystem: "aur".to_string(),
+                    name: pkg.name.clone(),
+                    version: pkg.version.clone(),
+                    description: pkg.description.clone(),
+                    url: pkg.url.clone(),
+                    maintainer: pkg.maintainer.clone(),
+                    numvotes: pkg.numvotes,
+                    popularity: pkg.popularity,
+                    outofdate: pkg.outofdate,
+                    lastmodified: pkg.lastmodified,
+                    health: health_str,
+                    github: gh_output,
+                };
+                println!("{}", serde_json::to_string_pretty(&output).unwrap());
+            } else {
+                print_package_info(pkg);
+
+                if let Some(ref upstream_url) = pkg.url {
+                    if let Some((owner, repo)) = parse_github_repo(upstream_url) {
+                        println!("\n🐙 GitHub: {}/{}", owner, repo);
+                        match fetch_github_info(&owner, &repo) {
+                            Ok(gh) => print_github_info(&gh),
+                            Err(e) => eprintln!("   ❌ Fetch failed: {}", e),
+                        }
+                    } else {
+                        println!("\n🐙 GitHub: not a GitHub repository");
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            if output_json {
+                let err = serde_json::json!({
+                    "ecosystem": "aur",
+                    "error": format!("Failed to fetch AUR: {}", e)
+                });
+                println!("{}", serde_json::to_string_pretty(&err).unwrap());
+            } else {
+                eprintln!("❌ Failed to fetch AUR: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+// ── Text display helpers ─────────────────────────────────────────────
 
 pub fn print_package_info(pkg: &AurPackage) {
     println!("\n📦 Package: {}", pkg.name);
