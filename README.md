@@ -3,91 +3,94 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/I-XXII-V/Watchtower/rust.yml?branch=main)](https://github.com/I-XXII-V/Watchtower/actions)
 
-Cek kesehatan dependency project lo dari berbagai ecosystem — AUR, Cargo, npm, PyPI, sama Go. Tinggal scan, liat mana aja yang udah basi atau ditinggal mati sama maintainer.
-
-Ada command `who-depends` juga buat liat siapa aja yang depende ke suatu package (kalo lo penasaran).
+Check if your dependencies are still alive across AUR, Cargo, npm, PyPI, and Go. Spot stale, abandoned, or out-of-date packages before they become a headache.
 
 ```bash
-# scan semua AUR package yang terinstall
+# scan all installed AUR packages
 watchtower
 
-# scan project Rust lo
+# scan your Rust project
 watchtower --cargo
 
-# liat reverse dependencies serde
+# find out who depends on serde
 watchtower who-depends serde
 
-# output JSON, pipe ke jq
+# JSON output, pipe to jq
 watchtower --cargo --json | jq '.packages[] | select(.health == "dead")'
 ```
 
 ## Install
 
-**Binary langsung (paling gampang):**
+**Pre-built binary (easiest):**
 ```bash
 curl -L https://github.com/I-XXII-V/Watchtower/releases/latest/download/watchtower -o watchtower
 chmod +x watchtower && sudo mv watchtower /usr/local/bin/
 ```
 
-**AUR (Arch):**
+**AUR (Arch Linux):**
 ```bash
 yay -S watchtower
 ```
 
-**Cargo source:**
+**From source:**
 ```bash
 cargo install --git https://github.com/I-XXII-V/Watchtower
 ```
 
-Note: kalo lo pake Arch, AUR scan butuh `pacman -Qm`. Yang pake ecosystem lain (npm, PyPI, dll) gak perlu Arch — tinggal masuk ke folder project dan scan.
+AUR scanning requires `pacman -Qm`, so that only works on Arch. Everything else (Cargo, npm, PyPI, Go) works on any Linux distro.
 
-## Cara pake
+## Usage
 
 ```text
 watchtower [OPTIONS] [PACKAGE]
 
 Arguments:
-  <PACKAGE>              Detail info suatu AUR package
+  <PACKAGE>              Show detailed info for an AUR package
 
 Options:
-  -a, --aur <QUERY>      Cari AUR package
-  -c, --cargo            Scan Cargo.lock
-  -n, --npm              Scan package-lock.json
+  -a, --aur <QUERY>      Search AUR packages
+  -c, --cargo            Scan Cargo.lock dependencies
+  -n, --npm              Scan package-lock.json dependencies
   -p, --pypi             Scan poetry.lock / Pipfile.lock
-  -g, --go               Scan go.mod
-  -j, --json             Output JSON
-  -s, --stale            Filter: tampilkan yg bermasalah aja
+  -g, --go               Scan go.mod dependencies
+  -j, --json             Output in JSON format
+  -s, --stale            Only show unhealthy/stale packages
 
 Subcommands:
-  who-depends, wd <crate>  Cari reverse dependencies suatu crate
+  who-depends, wd <crate>  Show crates that depend on a given crate
 ```
 
-### Scan dependency project
-
-Masuk ke folder project, terus jalanin:
+### Scan your project dependencies
 
 ```bash
-watchtower --cargo   # Rust — baca Cargo.lock
-watchtower --npm     # JS — baca package-lock.json
-watchtower --pypi    # Python — baca poetry.lock atau Pipfile.lock
-watchtower --go      # Go — baca go.mod
+cd my-rust-project
+watchtower --cargo
+
+cd my-node-project
+watchtower --npm
+
+cd my-python-project
+watchtower --pypi
+
+cd my-go-project
+watchtower --go
 ```
 
-Bisa digabung sama `--stale` biar yang keliatan cuma yang bermasalah:
+Add `--stale` to see only the ones that need attention:
 
 ```bash
 watchtower --cargo --stale
 ```
 
-Nanti muncul alesan kenapa dia dianggep stale:
+Each stale package shows why:
 ```
 ⚠️ tracing v0.1.44 — Application-level tracing for Rust, downloads: 658.4M
    └─ No release on crates.io in 182 days
 ```
 
-### Output JSON
+### JSON output
 
-Buat scripting atau CI:
+For scripting or CI pipelines:
 
 ```bash
 watchtower --cargo --json | jq '.summary'
@@ -95,7 +98,7 @@ watchtower --cargo --json | jq '.packages[] | select(.health == "dead") | .name'
 watchtower --cargo --stale --json | jq '.packages[].stale_reason'
 ```
 
-### Liat detail satu package
+### Single package info
 
 ```bash
 watchtower yay
@@ -103,7 +106,7 @@ watchtower neovim
 watchtower --aur rust-analyzer
 ```
 
-Outputnya: info AUR + GitHub stars, forks, last commit, detection kalo di-archive.
+Shows AUR metadata plus GitHub stars, forks, last commit, and archive status.
 
 ### Reverse dependencies
 
@@ -114,29 +117,29 @@ watchtower wd tokio
 
 ## Health scoring
 
-Watchtower nentuin kesehatan package berdasarkan 3 hal (urut):
+Packages get scored based on three things (in order):
 
-1. **Flag out-of-date** di AUR — langsung ⚠️
-2. **Kapan terakhir rilis** di registry (crates.io / npm / PyPI / Go proxy)
-3. **Kapan terakhir commit** di GitHub upstream (kalo repository-nya GitHub)
+1. **Out-of-date flag** on AUR — immediate ⚠️
+2. **Last release date** on the registry (crates.io / npm / PyPI / Go proxy)
+3. **Last commit date** on GitHub (if the upstream is on GitHub)
 
-| Status | Artinya |
+| Status | Meaning |
 |--------|---------|
-| ✅ | Active — ada aktivitas 6 bulan terakhir |
-| ⚠️ | Stale — 6-12 bulan gak ada gerak |
-| 🔴 | Inactive — 1-2 tahun |
-| 🪦 | Dead — >2 tahun, tinggal kenangan |
-| ❓ | Unknown — gagal fetch data |
+| ✅ | Active — something happened in the last 6 months |
+| ⚠️ | Stale — 6 to 12 months of silence |
+| 🔴 | Inactive — 1 to 2 years |
+| 🪦 | Dead — over 2 years, buried |
+| ❓ | Unknown — couldn't fetch data |
 
-## GITHUB_TOKEN (opsional)
+## GITHUB_TOKEN (optional)
 
-GitHub API punya rate limit 60 request/jam kalo tanpa token. Biar scanning lebih akurat (cek commit history), set env variable:
+GitHub rate-limits unauthenticated requests to 60/hour. Without a token you'll start seeing "GitHub fetch failed" after a while. Set this to avoid that:
 
 ```bash
 export GITHUB_TOKEN="github_pat_..."
 ```
 
-Bikin token di GitHub Settings → Developer settings → Personal access tokens (gausah kasih scope apa-apa, cukup public access).
+Create one at GitHub Settings → Developer settings → Personal access tokens. No special scopes needed.
 
 ## Supported lockfiles
 
