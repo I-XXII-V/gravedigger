@@ -110,7 +110,7 @@ fn main() {
         if sub == "who-depends" || sub == "wd" {
             let pkg = args.iter().skip(1)
                 .position(|a| a == sub)
-                .and_then(|pos| args.get(pos + 1));
+                .and_then(|pos| args.get(pos + 2));
             match pkg {
                 Some(p) => downstream::who_depends_crates(p),
                 None => {

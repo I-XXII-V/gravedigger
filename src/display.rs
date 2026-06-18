@@ -324,6 +324,7 @@ pub fn single_package_json(pkg_name: &str, output_json: bool) {
                     println!("{}", serde_json::to_string_pretty(&err).unwrap());
                 } else {
                     eprintln!("❌ Package '{}' not found in AUR", pkg_name);
+                    std::process::exit(1);
                 }
                 return;
             }
@@ -445,5 +446,65 @@ pub fn print_github_info(repo: &GitHubRepo) {
 
     if repo.archived {
         println!("   🗄️ ARCHIVED — no longer maintained");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_stale_dead() {
+        assert!(is_stale("🪦"));
+    }
+
+    #[test]
+    fn test_is_stale_inactive() {
+        assert!(is_stale("🔴"));
+    }
+
+    #[test]
+    fn test_is_stale_warning() {
+        assert!(is_stale("⚠️"));
+    }
+
+    #[test]
+    fn test_is_stale_unknown() {
+        assert!(is_stale("❓"));
+    }
+
+    #[test]
+    fn test_is_stale_healthy() {
+        assert!(!is_stale("✅"));
+    }
+
+    #[test]
+    fn test_is_stale_invalid() {
+        assert!(!is_stale("🤷"));
+    }
+
+    #[test]
+    fn test_health_color_healthy() {
+        assert_eq!(health_color("✅"), "\x1b[32m");
+    }
+
+    #[test]
+    fn test_health_color_warning() {
+        assert_eq!(health_color("⚠️"), "\x1b[33m");
+    }
+
+    #[test]
+    fn test_health_color_inactive() {
+        assert_eq!(health_color("🔴"), "\x1b[31m");
+    }
+
+    #[test]
+    fn test_health_color_dead() {
+        assert_eq!(health_color("🪦"), "\x1b[31m");
+    }
+
+    #[test]
+    fn test_health_color_unknown() {
+        assert_eq!(health_color("❓"), "\x1b[90m");
     }
 }
