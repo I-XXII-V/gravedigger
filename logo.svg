@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#16213e"/>
+    </linearGradient>
+    <linearGradient id="tower" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+    <linearGradient id="roof" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#94a3b8"/>
+      <stop offset="100%" stop-color="#64748b"/>
+    </linearGradient>
+    <linearGradient id="glow" cx="0.5" cy="0.5" r="0.5" fx="0.5" fy="0.5" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="95" fill="url(#sky)" stroke="#334155" stroke-width="2"/>
+
+  <!-- Searchlight beam -->
+  <polygon points="100,75 55,135 145,135" fill="url(#glow)" opacity="0.25"/>
+
+  <!-- Tower body -->
+  <rect x="72" y="55" width="56" height="85" rx="3" fill="url(#tower)" stroke="#475569" stroke-width="1.5"/>
+
+  <!-- Tower roof -->
+  <polygon points="66,55 100,28 134,55" fill="url(#roof)" stroke="#475569" stroke-width="1.5"/>
+
+  <!-- Roof finial -->
+  <circle cx="100" cy="26" r="3" fill="#fbbf24"/>
+
+  <!-- Window frame -->
+  <rect x="85" y="65" width="30" height="30" rx="3" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+
+  <!-- Window cross -->
+  <line x1="100" y1="65" x2="100" y2="95" stroke="#475569" stroke-width="1"/>
+  <line x1="85" y1="80" x2="115" y2="80" stroke="#475569" stroke-width="1"/>
+
+  <!-- Searchlight (circle inside window) -->
+  <circle cx="100" cy="80" r="6" fill="#22d3ee" opacity="0.9"/>
+  <circle cx="100" cy="80" r="10" fill="#22d3ee" opacity="0.2"/>
+
+  <!-- Foundation -->
+  <rect x="68" y="140" width="64" height="8" rx="2" fill="#334155" stroke="#475569" stroke-width="1"/>
+
+  <!-- Left leg -->
+  <rect x="75" y="148" width="8" height="20" rx="1" fill="#64748b" stroke="#475569" stroke-width="1"/>
+
+  <!-- Right leg -->
+  <rect x="117" y="148" width="8" height="20" rx="1" fill="#64748b" stroke="#475569" stroke-width="1"/>
+
+  <!-- Ground -->
+  <rect x="40" y="168" width="120" height="4" rx="2" fill="#334155"/>
+
+  <!-- Label -->
+  <text x="100" y="190" text-anchor="middle" font-family="monospace" font-size="9" fill="#94a3b8" letter-spacing="2">WATCHTOWER</text>
+</svg>

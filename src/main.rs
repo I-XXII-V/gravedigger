@@ -17,9 +17,22 @@ use clap::{Parser, Subcommand};
     name = "watchtower",
     about = "Watchtower — check the health of your dependencies across AUR, Cargo, npm, PyPI, and Go",
     long_about = "\
-Scan your project's dependencies and see which ones are healthy, stale, 
-inactive, or completely dead. Works with AUR, Cargo.lock, package-lock.json, 
-poetry.lock / Pipfile.lock, and go.mod.",
+     ┌───┐
+     │ W │
+  ┌──┤   ├──┐
+  │  │   │  │
+  │  └───┘  │
+  │         │
+  └─────────┘
+   │       │
+   │       │
+  ┌┘       └┐
+
+Watchtower — scan your project's dependencies and see which ones are
+healthy, stale, inactive, or completely dead.
+
+Works with: AUR, Cargo.lock, package-lock.json, poetry.lock /
+Pipfile.lock, and go.mod.",
     version
 )]
 struct Cli {
