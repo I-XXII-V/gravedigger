@@ -211,6 +211,7 @@ pub fn scan_installed(stale_only: bool, output_json: bool, ci: bool) {
 
     let count_healthy = &AtomicU32::new(0);
     let count_warning = &AtomicU32::new(0);
+    let count_hijack = &AtomicU32::new(0);
     let count_inactive = &AtomicU32::new(0);
     let count_dead = &AtomicU32::new(0);
     let count_unknown = &AtomicU32::new(0);
@@ -230,7 +231,8 @@ pub fn scan_installed(stale_only: bool, output_json: bool, ci: bool) {
 
                         match health {
                             "✅" => { count_healthy.fetch_add(1, Ordering::Relaxed); }
-                            "⚠️" | "🚩" => { count_warning.fetch_add(1, Ordering::Relaxed); }
+                            "⚠️" => { count_warning.fetch_add(1, Ordering::Relaxed); }
+                            "🚩" => { count_hijack.fetch_add(1, Ordering::Relaxed); }
                             "🔴" => { count_inactive.fetch_add(1, Ordering::Relaxed); }
                             "🪦" => { count_dead.fetch_add(1, Ordering::Relaxed); }
                             _ => { count_unknown.fetch_add(1, Ordering::Relaxed); }
@@ -291,6 +293,7 @@ pub fn scan_installed(stale_only: bool, output_json: bool, ci: bool) {
 
     let h = count_healthy.load(Ordering::Relaxed);
     let w = count_warning.load(Ordering::Relaxed);
+    let j = count_hijack.load(Ordering::Relaxed);
     let i = count_inactive.load(Ordering::Relaxed);
     let d = count_dead.load(Ordering::Relaxed);
     let u = count_unknown.load(Ordering::Relaxed);
@@ -300,14 +303,17 @@ pub fn scan_installed(stale_only: bool, output_json: bool, ci: bool) {
         let output = ScanOutput {
             ecosystem: "aur".to_string(),
             packages,
-            summary: Summary { healthy: h, warning: w, inactive: i, dead: d, unknown: u, cves: 0 },
+            summary: Summary { healthy: h, warning: w, hijack: j, inactive: i, dead: d, unknown: u, cves: 0 },
         };
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {
+        let hijack_part = if j > 0 {
+            format!("  {}🚩 {}{}", RED, j, RESET)
+        } else { String::new() };
         println!();
-        println!("{}📊 Summary:{} {}✅ {}  {}⚠️ {}  {}🔴 {}  {}🪦 {}  {}❓ {}{}",
+        println!("{}📊 Summary:{} {}✅ {}  {}⚠️ {}{}  {}🔴 {}  {}🪦 {}  {}❓ {}{}",
             BOLD, RESET,
-            GREEN, h, YELLOW, w, RED, i, RED, d, GRAY, u, RESET);
+            GREEN, h, YELLOW, w, hijack_part, RED, i, RED, d, GRAY, u, RESET);
     }
 
     if ci && d > 0 {

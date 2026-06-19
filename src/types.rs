@@ -5,6 +5,7 @@ pub fn health_to_string(emoji: &str) -> String {
     match emoji {
         "✅" => "healthy".to_string(),
         "⚠️" => "warning".to_string(),
+        "🚩" => "hijack".to_string(),
         "🔴" => "inactive".to_string(),
         "🪦" => "dead".to_string(),
         _ => "unknown".to_string(),
@@ -35,6 +36,7 @@ pub struct PackageResult {
 pub struct Summary {
     pub healthy: u32,
     pub warning: u32,
+    pub hijack: u32,
     pub inactive: u32,
     pub dead: u32,
     pub unknown: u32,
@@ -46,6 +48,7 @@ impl Summary {
         Self {
             healthy: 0,
             warning: 0,
+            hijack: 0,
             inactive: 0,
             dead: 0,
             unknown: 0,
@@ -91,6 +94,11 @@ mod tests {
     }
 
     #[test]
+    fn test_health_to_string_hijack() {
+        assert_eq!(health_to_string("🚩"), "hijack");
+    }
+
+    #[test]
     fn test_health_to_string_fallback() {
         assert_eq!(health_to_string("🤷"), "unknown");
     }
@@ -100,6 +108,7 @@ mod tests {
         let s = Summary::new();
         assert_eq!(s.healthy, 0);
         assert_eq!(s.warning, 0);
+        assert_eq!(s.hijack, 0);
         assert_eq!(s.inactive, 0);
         assert_eq!(s.dead, 0);
         assert_eq!(s.unknown, 0);

@@ -389,7 +389,7 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
         let output = ScanOutput {
             ecosystem: "npm".to_string(),
             packages,
-            summary: Summary { healthy: h, warning: w, inactive: i, dead: d, unknown: u, cves: c },
+            summary: Summary { healthy: h, warning: w, hijack: 0, inactive: i, dead: d, unknown: u, cves: c },
         };
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {

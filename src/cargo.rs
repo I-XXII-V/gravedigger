@@ -375,7 +375,7 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
         let output = ScanOutput {
             ecosystem: "cargo".to_string(),
             packages,
-            summary: Summary { healthy: h, warning: w, inactive: i, dead: d, unknown: u, cves: c },
+            summary: Summary { healthy: h, warning: w, hijack: 0, inactive: i, dead: d, unknown: u, cves: c },
         };
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {

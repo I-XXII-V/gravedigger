@@ -153,12 +153,13 @@ For AUR packages:
 
 This means even without a `GITHUB_TOKEN`, all your AUR packages get scored from the PKGBUILD modification date instead of showing ❓.
 
-Additional AUR signal: if a PKGBUILD was updated recently (< 90 days) but the package is orphaned with low popularity, Watchtower flags a potential **maintainer takeover / supply-chain hijack** risk.
+Additional AUR signal: if a PKGBUILD was updated recently (< 90 days) but the package is orphaned with low popularity, Watchtower flags a potential **maintainer takeover / supply-chain hijack** risk (🚩). These show up separately in the summary so they don't get lost in the warning count.
 
 | Status | Meaning |
 |--------|---------|
 | ✅ | Active — someone pushed code this decade |
 | ⚠️ | Stale — 6–12 months of silence. Maintainer might just be busy. Or dead. We don't know. |
+| 🚩 | Hijack risk — recently updated but orphaned with low popularity. Someone's been busy. |
 | 🔴 | Inactive — 1–2 years. Start writing that migration guide. |
 | 🪦 | Dead — over 2 years. It's not coming back. Hold a funeral. |
 | ❓ | Unknown — couldn't fetch data. The package exists but that's all we know. Like a Schrödinger's dependency. |
