@@ -84,8 +84,16 @@ watchtower --npm --licenses
 With `--stale`, each package explains why it's rotting:
 
 ```
-⚠️ tracing v0.1.44 — Application-level tracing for Rust, downloads: 658.4M
+⚠️ paru — maintainer: Morganamilo, popularity: 38.5
    └─ No release on crates.io in 182 days
+```
+
+AUR packages get multiple reasons when needed:
+
+```
+🪦 pipes.sh — maintainer: StefansMez, popularity: 1.6
+   └─ GitHub fetch failed: HTTP 403 (rate limited)
+      PKGBUILD not updated in 2916 days — DEAD
 ```
 
 With `--json`, you can pipe it somewhere that makes you look productive:
@@ -117,7 +125,7 @@ See who else is living dangerously by depending on the same things you do.
 
 ## CVE scanning
 
-Watchtower checks CVEs via [OSV.dev](https://osv.dev) for each dependency. Supported for Cargo, npm, PyPI, and Go. AUR is skipped — OSV doesn't support it, and honestly if you're getting your security advice from AUR packages you have bigger problems.
+Watchtower checks CVEs via [OSV.dev](https://osv.dev) for each dependency. Supported for Cargo, npm, PyPI, and Go. AUR is skipped — OSV doesn't support it.
 
 If there's a CVE, you'll see it:
 
@@ -131,11 +139,21 @@ Results are cached in `~/.cache/watchtower/`. Second scan is faster. First scan 
 
 ## Health scoring
 
-Packages are scored based on (in order of priority):
+For registry packages (Cargo, npm, PyPI, Go):
 
 1. **Out-of-date flag** on AUR — immediate ⚠️
 2. **Last release date** on the registry (crates.io / npm / PyPI / Go proxy)
 3. **Last commit date** on GitHub (if upstream is on GitHub)
+
+For AUR packages:
+
+1. **Out-of-date flag** from AUR RPC — immediate ⚠️
+2. **GitHub last commit** — if the upstream is on GitHub
+3. **AUR `LastModified` timestamp** — fallback (no rate limits, no extra API calls)
+
+This means even without a `GITHUB_TOKEN`, all your AUR packages get scored from the PKGBUILD modification date instead of showing ❓.
+
+Additional AUR signal: if a PKGBUILD was updated recently (< 90 days) but the package is orphaned with low popularity, Watchtower flags a potential **maintainer takeover / supply-chain hijack** risk.
 
 | Status | Meaning |
 |--------|---------|
