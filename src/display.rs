@@ -1,7 +1,7 @@
 use crate::api::*;
 use crate::types::{
-    days_since_date_prefix, days_since_unix, health_to_string, score_from_days, PackageResult,
-    ScanOutput, Summary,
+    collect_results, days_since_date_prefix, days_since_unix, health_to_string, score_from_days,
+    PackageResult, ScanOutput, Summary,
 };
 use serde::Serialize;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -311,7 +311,7 @@ pub fn scan_installed(stale_only: bool, output_json: bool, ci: bool) {
     let u = count_unknown.load(Ordering::Relaxed);
 
     if output_json {
-        let packages = Arc::try_unwrap(results).unwrap().into_inner().unwrap();
+        let packages = collect_results(results);
         let output = ScanOutput {
             ecosystem: "aur".to_string(),
             packages,
@@ -376,9 +376,9 @@ pub fn search_and_display(query: &str, output_json: bool) {
                 for pkg in &response.results {
                     let results = Arc::clone(&results);
                     s.spawn(move || {
-                        let health = get_health(pkg);
-
                         if output_json {
+                            // JSON path: just compute health string (single GitHub call inside)
+                            let health = get_health(pkg);
                             let mut r = results.lock().unwrap();
                             r.push(PackageResult {
                                 name: pkg.name.clone(),
@@ -392,18 +392,40 @@ pub fn search_and_display(query: &str, output_json: bool) {
                             return;
                         }
 
-                        let stars = if let Some(ref url) = pkg.url {
+                        // Text output: make one GitHub call, derive health + stars
+                        let (health, stars) = if let Some(ref url) = pkg.url {
                             if let Some((owner, repo)) = parse_github_repo(url) {
-                                if let Ok(gh) = fetch_github_info(&owner, &repo) {
-                                    format!("⭐ {}", gh.stars)
-                                } else {
-                                    String::new()
+                                match fetch_github_info(&owner, &repo) {
+                                    Ok(gh) => {
+                                        let h = if hijack_risk(pkg).is_some() {
+                                            "🚩"
+                                        } else if pkg.outofdate.is_some() {
+                                            "⚠️"
+                                        } else if let Some(days) =
+                                            days_since_date_prefix(&gh.pushed_at)
+                                        {
+                                            score_from_days(days)
+                                        } else {
+                                            score_from_days(days_since_unix(pkg.lastmodified))
+                                        };
+                                        (h, format!("⭐ {}", gh.stars))
+                                    }
+                                    Err(_) => {
+                                        let h = get_health(pkg);
+                                        (h, String::new())
+                                    }
                                 }
                             } else {
-                                String::new()
+                                (get_health(pkg), String::new())
                             }
                         } else {
+                            (get_health(pkg), String::new())
+                        };
+
+                        let stars_display = if stars.is_empty() {
                             String::new()
+                        } else {
+                            format!("({}) ", stars)
                         };
 
                         println!(
@@ -412,11 +434,7 @@ pub fn search_and_display(query: &str, output_json: bool) {
                             health,
                             RESET,
                             pkg.name,
-                            if stars.is_empty() {
-                                String::new()
-                            } else {
-                                format!("({}) ", stars)
-                            },
+                            stars_display,
                             pkg.description.as_deref().unwrap_or("")
                         );
                     });
@@ -424,7 +442,7 @@ pub fn search_and_display(query: &str, output_json: bool) {
             });
 
             if output_json {
-                let packages = Arc::try_unwrap(results).unwrap().into_inner().unwrap();
+                let packages = collect_results(results);
                 let output = ScanOutput {
                     ecosystem: "aur-search".to_string(),
                     packages,

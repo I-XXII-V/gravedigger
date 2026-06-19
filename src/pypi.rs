@@ -2,7 +2,8 @@ use crate::api::*;
 use crate::display::{health_color, is_stale};
 use crate::osv;
 use crate::types::{
-    days_since_date_prefix, health_to_string, score_from_days, PackageResult, ScanOutput, Summary,
+    days_since_date_prefix, health_to_string, collect_results, print_summary, score_from_days, track_license,
+    PackageResult, ScanOutput, Summary,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -305,18 +306,7 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
 
                     // Track license if --licenses is active
                     if licenses {
-                        if let Some(ref lic) = resp.info.license {
-                            let mut lm = licenses_map.lock().unwrap();
-                            *lm.entry(if lic.is_empty() {
-                                "Unknown".into()
-                            } else {
-                                lic.clone()
-                            })
-                            .or_insert(0) += 1;
-                        } else {
-                            let mut lm = licenses_map.lock().unwrap();
-                            *lm.entry("Unknown".into()).or_insert(0) += 1;
-                        }
+                        track_license(&*licenses_map, resp.info.license.as_deref());
                     }
 
                     if stale_only && !is_stale(health) && vulns.is_empty() {
@@ -424,50 +414,25 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
     let u = count_unknown.load(Ordering::Relaxed);
     let c = count_cves.load(Ordering::Relaxed);
 
-    if output_json {
-        let packages = Arc::try_unwrap(results).unwrap().into_inner().unwrap();
-        let output = ScanOutput {
-            ecosystem: "pypi".to_string(),
-            packages,
-            summary: Summary {
-                healthy: h,
-                warning: w,
-                hijack: 0,
-                inactive: i,
-                dead: d,
-                unknown: u,
-                cves: c,
-            },
-        };
-        println!("{}", serde_json::to_string_pretty(&output).unwrap());
-    } else {
-        println!();
-        let cve_part = if c > 0 {
-            format!("  \x1b[31m🚨 {}\x1b[0m", c)
-        } else {
-            String::new()
-        };
-        println!(
-            "\x1b[1m📊 Summary:\x1b[0m \x1b[32m✅ {}\x1b[0m  \x1b[33m⚠️ {}\x1b[0m  \x1b[31m🔴 {}\x1b[0m  \x1b[31m🪦 {}\x1b[0m  \x1b[90m❓ {}\x1b[0m{}",
-            h, w, i, d, u, cve_part
-        );
-    }
+    let packages = collect_results(results);
 
-    if licenses {
-        let map = licenses_map.lock().unwrap();
-        let mut sorted: Vec<(String, u32)> = map.iter().map(|(k, v)| (k.clone(), *v)).collect();
-        sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
-        let total: u32 = map.values().sum();
-        println!("\n\x1b[1m📋 Licenses:\x1b[0m");
-        for (name, count) in &sorted {
-            let pct = (*count as f64 / total as f64) * 100.0;
-            println!("   \x1b[90m{:20}\x1b[0m {} ({:.0}%)", name, count, pct);
-        }
-    }
-
-    if ci && (d > 0 || c > 0) {
-        std::process::exit(1);
-    }
+    print_summary(
+        "pypi",
+        output_json,
+        packages,
+        Summary {
+            healthy: h,
+            warning: w,
+            hijack: 0,
+            inactive: i,
+            dead: d,
+            unknown: u,
+            cves: c,
+        },
+        licenses,
+        Some(&*licenses_map),
+        ci,
+    );
 }
 
 #[cfg(test)]

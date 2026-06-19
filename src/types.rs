@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// Normalized health status string (not emoji)
 pub fn health_to_string(emoji: &str) -> String {
@@ -38,6 +40,32 @@ pub fn days_since_unix(ts: u64) -> i64 {
     let then = std::time::UNIX_EPOCH + std::time::Duration::from_secs(ts);
     let then = chrono::DateTime::<chrono::Utc>::from(then).naive_utc();
     (chrono::Utc::now().naive_utc() - then).num_days()
+}
+
+/// Record a license for the `--licenses` summary (thread-safe).
+pub fn track_license(map: &Mutex<HashMap<String, u32>>, license_field: Option<&str>) {
+    let key = match license_field {
+        Some(lic) if !lic.is_empty() => lic.to_string(),
+        _ => "Unknown".to_string(),
+    };
+    let mut lm = map.lock().unwrap();
+    *lm.entry(key).or_insert(0) += 1;
+}
+
+/// Print the aggregated license breakdown.
+pub fn print_license_summary(map: &Mutex<HashMap<String, u32>>) {
+    let guard = map.lock().unwrap();
+    if guard.is_empty() {
+        return;
+    }
+    let mut sorted: Vec<(String, u32)> = guard.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
+    let total: u32 = guard.values().sum();
+    println!("\n\x1b[1m📋 Licenses:\x1b[0m");
+    for (name, count) in &sorted {
+        let pct = (*count as f64 / total as f64) * 100.0;
+        println!("   \x1b[90m{:20}\x1b[0m {} ({:.0}%)", name, count, pct);
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VulnInfo {
@@ -88,6 +116,70 @@ pub struct ScanOutput {
     pub ecosystem: String,
     pub packages: Vec<PackageResult>,
     pub summary: Summary,
+}
+
+/// Safely extract `Vec<PackageResult>` from `Arc<Mutex<Vec<PackageResult>>>`.
+///
+/// Recovers from a poisoned mutex (thread panic) instead of unwrapping blindly.
+pub fn collect_results(results: Arc<Mutex<Vec<PackageResult>>>) -> Vec<PackageResult> {
+    match Arc::try_unwrap(results) {
+        Ok(mtx) => match mtx.into_inner() {
+            Ok(v) => v,
+            Err(poison) => {
+                eprintln!("⚠️ A thread panicked during scanning; results may be incomplete");
+                poison.into_inner()
+            }
+        },
+        Err(_) => {
+            eprintln!("⚠️ Internal error: results Arc still referenced after scope");
+            vec![]
+        }
+    }
+}
+
+/// Print the end-of-scan summary (JSON or text), license breakdown, and CI exit.
+///
+/// `licenses_map` is optional — modules that don't track licenses (Go) pass `None`.
+pub fn print_summary(
+    ecosystem: &str,
+    output_json: bool,
+    packages: Vec<PackageResult>,
+    summary: Summary,
+    licenses_flag: bool,
+    licenses_map: Option<&Mutex<HashMap<String, u32>>>,
+    ci: bool,
+) {
+    if output_json {
+        // Clone summary so we can still read .cves / .dead for CI exit below
+        let s = summary.clone();
+        let output = ScanOutput {
+            ecosystem: ecosystem.to_string(),
+            packages,
+            summary: s,
+        };
+        println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    } else {
+        let cve_part = if summary.cves > 0 {
+            format!("  \x1b[31m🚨 {}\x1b[0m", summary.cves)
+        } else {
+            String::new()
+        };
+        println!();
+        println!(
+            "\x1b[1m📊 Summary:\x1b[0m \x1b[32m✅ {}\x1b[0m  \x1b[33m⚠️ {}\x1b[0m  \x1b[31m🔴 {}\x1b[0m  \x1b[31m🪦 {}\x1b[0m  \x1b[90m❓ {}\x1b[0m{}",
+            summary.healthy, summary.warning, summary.inactive, summary.dead, summary.unknown, cve_part
+        );
+    }
+
+    if licenses_flag {
+        if let Some(map) = licenses_map {
+            print_license_summary(map);
+        }
+    }
+
+    if ci && (summary.dead > 0 || summary.cves > 0) {
+        std::process::exit(1);
+    }
 }
 
 #[cfg(test)]
