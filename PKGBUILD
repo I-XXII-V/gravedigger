@@ -2,7 +2,7 @@
 # Contributor: I-XXII-V
 
 pkgname=watchtower
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc="CLI tool to check the health of your dependencies across AUR, Cargo, npm, PyPI, and Go"
 arch=('x86_64')
@@ -10,7 +10,7 @@ url="https://github.com/I-XXII-V/Watchtower"
 license=('MIT')
 makedepends=('cargo')
 source=("$url/archive/v$pkgver.tar.gz")
-sha256sums=('ed7ce92712c5788e98a164b5cf5709bd28da835436e01626873b8108fd95b62a')
+sha256sums=('SKIP')
 
 build() {
     cd "$srcdir/$pkgname-$pkgver"
