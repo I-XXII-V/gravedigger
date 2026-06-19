@@ -85,8 +85,13 @@ pub fn fetch_github_info(owner: &str, repo: &str) -> Result<GitHubRepo, String> 
         return Err(format!("HTTP {} — {}", status, text));
     }
 
-    serde_json::from_str(&text)
-        .map_err(|e| format!("Parse error: {} — body: {}", e, &text[..200.min(text.len())]))
+    serde_json::from_str(&text).map_err(|e| {
+        format!(
+            "Parse error: {} — body: {}",
+            e,
+            &text[..200.min(text.len())]
+        )
+    })
 }
 
 #[cfg(test)]

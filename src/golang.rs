@@ -1,11 +1,13 @@
 use crate::api::*;
 use crate::display::{health_color, is_stale};
 use crate::osv;
-use crate::types::{PackageResult, ScanOutput, Summary, health_to_string, days_since_date_prefix, score_from_days};
+use crate::types::{
+    days_since_date_prefix, health_to_string, score_from_days, PackageResult, ScanOutput, Summary,
+};
 use serde::Deserialize;
 use std::fs;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 // ── Structs ──────────────────────────────────────────────────────────
@@ -31,7 +33,11 @@ fn parse_go_mod_lines(content: &str) -> Result<Vec<(String, String)>, String> {
 
     for line in content.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with("//") || line.starts_with("module ") || line.starts_with("go ") {
+        if line.is_empty()
+            || line.starts_with("//")
+            || line.starts_with("module ")
+            || line.starts_with("go ")
+        {
             continue;
         }
         if line == "require (" {
@@ -130,7 +136,11 @@ fn fetch_go_proxy(mod_path: &str) -> Result<GoProxyResponse, String> {
     let text = resp.text().map_err(|e| format!("Read error: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!("HTTP {} — {}", status, &text[..200.min(text.len())]));
+        return Err(format!(
+            "HTTP {} — {}",
+            status,
+            &text[..200.min(text.len())]
+        ));
     }
 
     serde_json::from_str(&text).map_err(|e| format!("JSON error: {}", e))
@@ -203,7 +213,9 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, _licenses: bo
                         count_cves.fetch_add(n_cves, Ordering::Relaxed);
                     }
 
-                    if stale_only && !is_stale(health) && vulns.is_empty() { return; }
+                    if stale_only && !is_stale(health) && vulns.is_empty() {
+                        return;
+                    }
 
                     if output_json {
                         let mut r = results.lock().unwrap();
@@ -251,7 +263,11 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, _licenses: bo
                             vulns.len(),
                             if vulns.len() == 1 { "" } else { "s" },
                             cve_ids.join(", "),
-                            if cve_ids.len() < vulns.len() { ", ..." } else { "" },
+                            if cve_ids.len() < vulns.len() {
+                                ", ..."
+                            } else {
+                                ""
+                            },
                         ));
                         extra.push_str("\x1b[0m");
                     }
@@ -302,7 +318,15 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, _licenses: bo
         let output = ScanOutput {
             ecosystem: "go".to_string(),
             packages,
-            summary: Summary { healthy: h, warning: w, hijack: 0, inactive: i, dead: d, unknown: u, cves: c },
+            summary: Summary {
+                healthy: h,
+                warning: w,
+                hijack: 0,
+                inactive: i,
+                dead: d,
+                unknown: u,
+                cves: c,
+            },
         };
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {

@@ -51,7 +51,11 @@ fn test_who_depends_serde() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("serde"), "Output: {}", stdout);
-    assert!(stdout.contains("reverse dependencies"), "Output: {}", stdout);
+    assert!(
+        stdout.contains("reverse dependencies"),
+        "Output: {}",
+        stdout
+    );
 }
 
 #[test]

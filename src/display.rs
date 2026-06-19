@@ -1,17 +1,20 @@
 use crate::api::*;
-use crate::types::{PackageResult, ScanOutput, Summary, health_to_string, days_since_date_prefix, score_from_days, days_since_unix};
+use crate::types::{
+    days_since_date_prefix, days_since_unix, health_to_string, score_from_days, PackageResult,
+    ScanOutput, Summary,
+};
 use serde::Serialize;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 // ANSI color codes
-const GREEN:  &str = "\x1b[32m";
+const GREEN: &str = "\x1b[32m";
 const YELLOW: &str = "\x1b[33m";
-const RED:    &str = "\x1b[31m";
-const GRAY:   &str = "\x1b[90m";
-const BOLD:   &str = "\x1b[1m";
-const RESET:  &str = "\x1b[0m";
+const RED: &str = "\x1b[31m";
+const GRAY: &str = "\x1b[90m";
+const BOLD: &str = "\x1b[1m";
+const RESET: &str = "\x1b[0m";
 
 /// Detect potential maintainer-takeover / supply-chain attack pattern:
 /// PKGBUILD diupdate recent (< 90 hari), tapi popularity rendah (< 5.0)
@@ -142,8 +145,11 @@ fn get_stale_reason(pkg: &AurPackage) -> Option<String> {
         reasons.push(hijack);
     }
 
-    if reasons.is_empty() { None }
-    else { Some(reasons.join("\n   ")) }
+    if reasons.is_empty() {
+        None
+    } else {
+        Some(reasons.join("\n   "))
+    }
 }
 
 #[derive(Serialize)]
@@ -183,7 +189,8 @@ pub fn scan_installed(stale_only: bool, output_json: bool, ci: bool) {
         .expect("Failed to run pacman -Qm");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let packages: Vec<String> = stdout.lines()
+    let packages: Vec<String> = stdout
+        .lines()
         .filter_map(|line| line.split_whitespace().next().map(String::from))
         .collect();
 
@@ -212,15 +219,29 @@ pub fn scan_installed(stale_only: bool, output_json: bool, ci: bool) {
                         let health = get_health(pkg);
 
                         match health {
-                            "✅" => { count_healthy.fetch_add(1, Ordering::Relaxed); }
-                            "⚠️" => { count_warning.fetch_add(1, Ordering::Relaxed); }
-                            "🚩" => { count_hijack.fetch_add(1, Ordering::Relaxed); }
-                            "🔴" => { count_inactive.fetch_add(1, Ordering::Relaxed); }
-                            "🪦" => { count_dead.fetch_add(1, Ordering::Relaxed); }
-                            _ => { count_unknown.fetch_add(1, Ordering::Relaxed); }
+                            "✅" => {
+                                count_healthy.fetch_add(1, Ordering::Relaxed);
+                            }
+                            "⚠️" => {
+                                count_warning.fetch_add(1, Ordering::Relaxed);
+                            }
+                            "🚩" => {
+                                count_hijack.fetch_add(1, Ordering::Relaxed);
+                            }
+                            "🔴" => {
+                                count_inactive.fetch_add(1, Ordering::Relaxed);
+                            }
+                            "🪦" => {
+                                count_dead.fetch_add(1, Ordering::Relaxed);
+                            }
+                            _ => {
+                                count_unknown.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
 
-                        if stale_only && !is_stale(health) { return; }
+                        if stale_only && !is_stale(health) {
+                            return;
+                        }
 
                         if output_json {
                             let mut r = results.lock().unwrap();
@@ -245,11 +266,20 @@ pub fn scan_installed(stale_only: bool, output_json: bool, ci: bool) {
                             get_stale_reason(pkg)
                                 .map(|r| format!("\n   {}└─ {}{}", GRAY, r, RESET))
                                 .unwrap_or_default()
-                        } else { String::new() };
+                        } else {
+                            String::new()
+                        };
 
-                        println!("{}{}{} {} — maintainer: {}, popularity: {:.1}{}",
-                            health_color(health), health, RESET, pkg.name,
-                            maintainer_str, pkg.popularity, stale_info);
+                        println!(
+                            "{}{}{} {} — maintainer: {}, popularity: {:.1}{}",
+                            health_color(health),
+                            health,
+                            RESET,
+                            pkg.name,
+                            maintainer_str,
+                            pkg.popularity,
+                            stale_info
+                        );
                     }
                     _ => {
                         count_unknown.fetch_add(1, Ordering::Relaxed);
@@ -285,17 +315,28 @@ pub fn scan_installed(stale_only: bool, output_json: bool, ci: bool) {
         let output = ScanOutput {
             ecosystem: "aur".to_string(),
             packages,
-            summary: Summary { healthy: h, warning: w, hijack: j, inactive: i, dead: d, unknown: u, cves: 0 },
+            summary: Summary {
+                healthy: h,
+                warning: w,
+                hijack: j,
+                inactive: i,
+                dead: d,
+                unknown: u,
+                cves: 0,
+            },
         };
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {
         let hijack_part = if j > 0 {
             format!("  {}🚩 {}{}", RED, j, RESET)
-        } else { String::new() };
+        } else {
+            String::new()
+        };
         println!();
-        println!("{}📊 Summary:{} {}✅ {}  {}⚠️ {}{}  {}🔴 {}  {}🪦 {}  {}❓ {}{}",
-            BOLD, RESET,
-            GREEN, h, YELLOW, w, hijack_part, RED, i, RED, d, GRAY, u, RESET);
+        println!(
+            "{}📊 Summary:{} {}✅ {}  {}⚠️ {}{}  {}🔴 {}  {}🪦 {}  {}❓ {}{}",
+            BOLD, RESET, GREEN, h, YELLOW, w, hijack_part, RED, i, RED, d, GRAY, u, RESET
+        );
     }
 
     if ci && d > 0 {
@@ -323,7 +364,10 @@ pub fn search_and_display(query: &str, output_json: bool) {
             }
 
             if !output_json {
-                println!("🔍 Search results: {} ({} found)\n", query, response.resultcount);
+                println!(
+                    "🔍 Search results: {} ({} found)\n",
+                    query, response.resultcount
+                );
             }
 
             let results: Arc<Mutex<Vec<PackageResult>>> = Arc::new(Mutex::new(Vec::new()));
@@ -352,15 +396,29 @@ pub fn search_and_display(query: &str, output_json: bool) {
                             if let Some((owner, repo)) = parse_github_repo(url) {
                                 if let Ok(gh) = fetch_github_info(&owner, &repo) {
                                     format!("⭐ {}", gh.stars)
-                                } else { String::new() }
-                            } else { String::new() }
-                        } else { String::new() };
+                                } else {
+                                    String::new()
+                                }
+                            } else {
+                                String::new()
+                            }
+                        } else {
+                            String::new()
+                        };
 
-                        println!("{}{}{} {} {}{}",
-                            health_color(health), health, RESET,
+                        println!(
+                            "{}{}{} {} {}{}",
+                            health_color(health),
+                            health,
+                            RESET,
                             pkg.name,
-                            if stars.is_empty() { String::new() } else { format!("({}) ", stars) },
-                            pkg.description.as_deref().unwrap_or(""));
+                            if stars.is_empty() {
+                                String::new()
+                            } else {
+                                format!("({}) ", stars)
+                            },
+                            pkg.description.as_deref().unwrap_or("")
+                        );
                     });
                 }
             });
@@ -415,8 +473,8 @@ pub fn single_package_json(pkg_name: &str, output_json: bool) {
                 let health_emoji = get_health(pkg);
                 let health_str = health_to_string(health_emoji);
                 let gh_output = pkg.url.as_ref().and_then(|upstream_url| {
-                    parse_github_repo(upstream_url).and_then(|(owner, repo)| {
-                        match fetch_github_info(&owner, &repo) {
+                    parse_github_repo(upstream_url).and_then(
+                        |(owner, repo)| match fetch_github_info(&owner, &repo) {
                             Ok(gh) => Some(SingleGitHubOutput {
                                 owner: owner.clone(),
                                 repo: repo.clone(),
@@ -428,8 +486,8 @@ pub fn single_package_json(pkg_name: &str, output_json: bool) {
                                 archived: gh.archived,
                             }),
                             Err(_) => None,
-                        }
-                    })
+                        },
+                    )
                 });
 
                 let output = SinglePackageOutput {
@@ -483,7 +541,10 @@ pub fn single_package_json(pkg_name: &str, output_json: bool) {
 pub fn print_package_info(pkg: &AurPackage) {
     println!("\n📦 Package: {}", pkg.name);
     println!("   Version: {}", pkg.version);
-    println!("   Description: {}", pkg.description.as_deref().unwrap_or("-"));
+    println!(
+        "   Description: {}",
+        pkg.description.as_deref().unwrap_or("-")
+    );
     println!("   Upstream URL: {}", pkg.url.as_deref().unwrap_or("-"));
     match pkg.maintainer.as_deref() {
         None | Some("") => println!("   Maintainer: {}{}[ORPHANED]{}", RED, BOLD, RESET),
@@ -491,10 +552,13 @@ pub fn print_package_info(pkg: &AurPackage) {
     }
     println!("   Votes: {}", pkg.numvotes);
     println!("   Popularity: {:.2}", pkg.popularity);
-    println!("   Out of date: {}", match pkg.outofdate {
-        Some(_) => "⚠️ Yes",
-        None => "✅ No",
-    });
+    println!(
+        "   Out of date: {}",
+        match pkg.outofdate {
+            Some(_) => "⚠️ Yes",
+            None => "✅ No",
+        }
+    );
 
     let dur = std::time::Duration::from_secs(pkg.lastmodified);
     let time = std::time::UNIX_EPOCH + dur;
@@ -507,7 +571,10 @@ pub fn print_github_info(repo: &GitHubRepo) {
     println!("   🍴 Forks: {}", repo.forks);
     println!("   🔥 Open issues: {}", repo.open_issues);
     println!("   👀 Watchers: {}", repo.watchers);
-    println!("   📅 Pushed at: {}", repo.pushed_at.get(..10).unwrap_or(&repo.pushed_at));
+    println!(
+        "   📅 Pushed at: {}",
+        repo.pushed_at.get(..10).unwrap_or(&repo.pushed_at)
+    );
 
     if let Some(days) = days_since_date_prefix(&repo.pushed_at) {
         if days > 730 {
@@ -515,7 +582,10 @@ pub fn print_github_info(repo: &GitHubRepo) {
         } else if days > 365 {
             println!("   {}🔴 Last push > 1 year — INACTIVE{}", RED, RESET);
         } else if days > 180 {
-            println!("   {}⚠️ Last push > 6 months — check needed{}", YELLOW, RESET);
+            println!(
+                "   {}⚠️ Last push > 6 months — check needed{}",
+                YELLOW, RESET
+            );
         } else {
             println!("   {}✅ Active ({} days ago){}", GREEN, days, RESET);
         }

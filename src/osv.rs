@@ -168,7 +168,10 @@ mod tests {
         let vulns = parse_osv_response(json);
         assert_eq!(vulns.len(), 1);
         assert_eq!(vulns[0].id, "GHSA-xxxx-xxxx-xxxx");
-        assert_eq!(vulns[0].summary.as_deref(), Some("Vulnerability in package"));
+        assert_eq!(
+            vulns[0].summary.as_deref(),
+            Some("Vulnerability in package")
+        );
         assert_eq!(vulns[0].severity.as_deref(), Some("HIGH"));
         assert_eq!(vulns[0].aliases, vec!["CVE-2024-1234"]);
     }

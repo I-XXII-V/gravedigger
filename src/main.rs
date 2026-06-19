@@ -9,8 +9,8 @@ mod osv;
 mod pypi;
 mod types;
 
-use clap::{Parser, Subcommand};
 use crate::display::*;
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(

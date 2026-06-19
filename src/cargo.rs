@@ -1,12 +1,14 @@
 use crate::api::*;
 use crate::display::{fmt_downloads, health_color, is_stale};
 use crate::osv;
-use crate::types::{PackageResult, ScanOutput, Summary, health_to_string, days_since_date_prefix, score_from_days};
+use crate::types::{
+    days_since_date_prefix, health_to_string, score_from_days, PackageResult, ScanOutput, Summary,
+};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 // ── Structs ──────────────────────────────────────────────────────────
@@ -81,7 +83,10 @@ fn get_crate_stale_reason(data: &CrateData) -> Option<String> {
             return Some(format!("No release on crates.io in {} days — DEAD", days));
         }
         if days > 365 {
-            return Some(format!("No release on crates.io in {} days — INACTIVE", days));
+            return Some(format!(
+                "No release on crates.io in {} days — INACTIVE",
+                days
+            ));
         }
         if days > 180 {
             return Some(format!("No release on crates.io in {} days — STALE", days));
@@ -138,13 +143,8 @@ fn fetch_crate_info(name: &str) -> Result<CrateResponse, String> {
         ));
     }
 
-    serde_json::from_str(&text).map_err(|e| {
-        format!(
-            "JSON error: {} — body: {}",
-            e,
-            &text[..200.min(text.len())]
-        )
-    })
+    serde_json::from_str(&text)
+        .map_err(|e| format!("JSON error: {} — body: {}", e, &text[..200.min(text.len())]))
 }
 
 // ── Public entry point ───────────────────────────────────────────────
@@ -198,7 +198,10 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
     }
 
     if !output_json {
-        println!("📦 Scanning {} crate dependencies from Cargo.lock\n", registry_deps.len());
+        println!(
+            "📦 Scanning {} crate dependencies from Cargo.lock\n",
+            registry_deps.len()
+        );
     }
 
     let count_healthy = &AtomicU32::new(0);
@@ -224,11 +227,21 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
                         let health = get_crate_health(data);
 
                         match health {
-                            "✅" => { count_healthy.fetch_add(1, Ordering::Relaxed); }
-                            "⚠️" => { count_warning.fetch_add(1, Ordering::Relaxed); }
-                            "🔴" => { count_inactive.fetch_add(1, Ordering::Relaxed); }
-                            "🪦" => { count_dead.fetch_add(1, Ordering::Relaxed); }
-                            _ => { count_unknown.fetch_add(1, Ordering::Relaxed); }
+                            "✅" => {
+                                count_healthy.fetch_add(1, Ordering::Relaxed);
+                            }
+                            "⚠️" => {
+                                count_warning.fetch_add(1, Ordering::Relaxed);
+                            }
+                            "🔴" => {
+                                count_inactive.fetch_add(1, Ordering::Relaxed);
+                            }
+                            "🪦" => {
+                                count_dead.fetch_add(1, Ordering::Relaxed);
+                            }
+                            _ => {
+                                count_unknown.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
 
                         // Query OSV for known vulnerabilities
@@ -242,7 +255,12 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
                         if licenses {
                             if let Some(ref lic) = data.license {
                                 let mut lm = licenses_map.lock().unwrap();
-                                *lm.entry(if lic.is_empty() { "Unknown".into() } else { lic.clone() }).or_insert(0) += 1;
+                                *lm.entry(if lic.is_empty() {
+                                    "Unknown".into()
+                                } else {
+                                    lic.clone()
+                                })
+                                .or_insert(0) += 1;
                             } else {
                                 let mut lm = licenses_map.lock().unwrap();
                                 *lm.entry("Unknown".into()).or_insert(0) += 1;
@@ -250,7 +268,9 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
                         }
 
                         // Show if stale OR has CVEs (when --stale is active)
-                        if stale_only && !is_stale(health) && vulns.is_empty() { return; }
+                        if stale_only && !is_stale(health) && vulns.is_empty() {
+                            return;
+                        }
 
                         // JSON output
                         if output_json {
@@ -308,7 +328,11 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
                                 vulns.len(),
                                 if vulns.len() == 1 { "" } else { "s" },
                                 cve_ids.join(", "),
-                                if cve_ids.len() < vulns.len() { ", ..." } else { "" },
+                                if cve_ids.len() < vulns.len() {
+                                    ", ..."
+                                } else {
+                                    ""
+                                },
                             ));
                             extra.push_str("\x1b[0m");
                         }
@@ -361,7 +385,15 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
         let output = ScanOutput {
             ecosystem: "cargo".to_string(),
             packages,
-            summary: Summary { healthy: h, warning: w, hijack: 0, inactive: i, dead: d, unknown: u, cves: c },
+            summary: Summary {
+                healthy: h,
+                warning: w,
+                hijack: 0,
+                inactive: i,
+                dead: d,
+                unknown: u,
+                cves: c,
+            },
         };
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {

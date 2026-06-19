@@ -1,12 +1,14 @@
 use crate::api::*;
 use crate::display::{health_color, is_stale};
 use crate::osv;
-use crate::types::{PackageResult, ScanOutput, Summary, health_to_string, days_since_date_prefix, score_from_days};
+use crate::types::{
+    days_since_date_prefix, health_to_string, score_from_days, PackageResult, ScanOutput, Summary,
+};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 // ── Structs ──────────────────────────────────────────────────────────
@@ -78,12 +80,18 @@ fn extract_github_url(info: &PyPIInfo) -> Option<(String, String)> {
 fn parse_poetry_lock(path: &str) -> Result<Vec<(String, String)>, String> {
     let content = fs::read_to_string(path).map_err(|e| format!("Read error: {}", e))?;
     let lock: PoetryLock = toml::from_str(&content).map_err(|e| format!("Parse error: {}", e))?;
-    Ok(lock.package.unwrap_or_default().into_iter().map(|p| (p.name, p.version)).collect())
+    Ok(lock
+        .package
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| (p.name, p.version))
+        .collect())
 }
 
 fn parse_pipfile_lock(path: &str) -> Result<Vec<(String, String)>, String> {
     let content = fs::read_to_string(path).map_err(|e| format!("Read error: {}", e))?;
-    let lock: PipfileLock = serde_json::from_str(&content).map_err(|e| format!("Parse error: {}", e))?;
+    let lock: PipfileLock =
+        serde_json::from_str(&content).map_err(|e| format!("Parse error: {}", e))?;
 
     let mut deps = Vec::new();
     if let Some(default) = lock.default {
@@ -109,7 +117,9 @@ fn get_pypi_health(info: &PyPIInfo, urls: &[PyPIUrl]) -> &'static str {
             let clean = upload_time.trim_end_matches('Z');
             if let Some(days) = days_since_date_prefix(clean) {
                 let health = score_from_days(days);
-                if health != "✅" { return health; }
+                if health != "✅" {
+                    return health;
+                }
             } else {
                 return "❓";
             }
@@ -131,6 +141,14 @@ fn get_pypi_health(info: &PyPIInfo, urls: &[PyPIUrl]) -> &'static str {
     "✅"
 }
 
+/// Stale reason for PyPI packages.
+///
+/// Strategy (mirrors `get_crate_health` in cargo.rs):
+/// 1. Check PyPI `upload_time` — if stale (⚠️/🔴/🪦), return reason immediately.
+/// 2. If PyPI says ✅ (days ≤ 180), still check GitHub `pushed_at` for finer
+///    granularity. A package may have a stale upload but an active repo.
+/// 3. If GitHub check passes (< 180 days), function falls through to `None` —
+///    this is correct: PyPI said STALE but GitHub override makes it healthy ✅.
 fn get_pypi_stale_reason(info: &PyPIInfo, urls: &[PyPIUrl]) -> Option<String> {
     if let Some(url) = urls.first() {
         if let Some(ref upload_time) = url.upload_time {
@@ -188,7 +206,11 @@ fn fetch_pypi_info(name: &str) -> Result<PyPIResponse, String> {
     let text = resp.text().map_err(|e| format!("Read error: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!("HTTP {} — {}", status, &text[..200.min(text.len())]));
+        return Err(format!(
+            "HTTP {} — {}",
+            status,
+            &text[..200.min(text.len())]
+        ));
     }
 
     serde_json::from_str(&text).map_err(|e| format!("JSON error: {}", e))
@@ -200,7 +222,9 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
     let deps = if fs::metadata("poetry.lock").is_ok() {
         match parse_poetry_lock("poetry.lock") {
             Ok(d) => {
-                if !output_json { println!("📦 Found poetry.lock"); }
+                if !output_json {
+                    println!("📦 Found poetry.lock");
+                }
                 d
             }
             Err(e) => {
@@ -211,7 +235,9 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
     } else if fs::metadata("Pipfile.lock").is_ok() {
         match parse_pipfile_lock("Pipfile.lock") {
             Ok(d) => {
-                if !output_json { println!("📦 Found Pipfile.lock"); }
+                if !output_json {
+                    println!("📦 Found Pipfile.lock");
+                }
                 d
             }
             Err(e) => {
@@ -281,14 +307,21 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
                     if licenses {
                         if let Some(ref lic) = resp.info.license {
                             let mut lm = licenses_map.lock().unwrap();
-                            *lm.entry(if lic.is_empty() { "Unknown".into() } else { lic.clone() }).or_insert(0) += 1;
+                            *lm.entry(if lic.is_empty() {
+                                "Unknown".into()
+                            } else {
+                                lic.clone()
+                            })
+                            .or_insert(0) += 1;
                         } else {
                             let mut lm = licenses_map.lock().unwrap();
                             *lm.entry("Unknown".into()).or_insert(0) += 1;
                         }
                     }
 
-                    if stale_only && !is_stale(health) && vulns.is_empty() { return; }
+                    if stale_only && !is_stale(health) && vulns.is_empty() {
+                        return;
+                    }
 
                     if output_json {
                         let mut r = results.lock().unwrap();
@@ -336,7 +369,11 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
                             vulns.len(),
                             if vulns.len() == 1 { "" } else { "s" },
                             cve_ids.join(", "),
-                            if cve_ids.len() < vulns.len() { ", ..." } else { "" },
+                            if cve_ids.len() < vulns.len() {
+                                ", ..."
+                            } else {
+                                ""
+                            },
                         ));
                         extra.push_str("\x1b[0m");
                     }
@@ -347,7 +384,11 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
                         health,
                         pkg_name,
                         pkg_version,
-                        if desc.is_empty() { "no description" } else { &desc },
+                        if desc.is_empty() {
+                            "no description"
+                        } else {
+                            &desc
+                        },
                         resp.info.version,
                         extra,
                     );
@@ -388,7 +429,15 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
         let output = ScanOutput {
             ecosystem: "pypi".to_string(),
             packages,
-            summary: Summary { healthy: h, warning: w, hijack: 0, inactive: i, dead: d, unknown: u, cves: c },
+            summary: Summary {
+                healthy: h,
+                warning: w,
+                hijack: 0,
+                inactive: i,
+                dead: d,
+                unknown: u,
+                cves: c,
+            },
         };
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {
@@ -425,40 +474,49 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
 mod tests {
     use super::*;
 
-    fn make_info(
-        home_page: Option<&str>,
-        project_urls: Option<Vec<(&str, &str)>>,
-    ) -> PyPIInfo {
+    fn make_info(home_page: Option<&str>, project_urls: Option<Vec<(&str, &str)>>) -> PyPIInfo {
         PyPIInfo {
             name: "test".into(),
             version: "1.0.0".into(),
             summary: None,
             home_page: home_page.map(String::from),
-            project_urls: project_urls.map(|v| v.into_iter().map(|(k, v)| (k.into(), v.into())).collect()),
+            project_urls: project_urls
+                .map(|v| v.into_iter().map(|(k, v)| (k.into(), v.into())).collect()),
             license: None,
         }
     }
 
     #[test]
     fn test_extract_github_url_from_project_urls() {
-        let info = make_info(None, Some(vec![
-            ("Source", "https://github.com/owner/repo"),
-        ]));
-        assert_eq!(extract_github_url(&info), Some(("owner".into(), "repo".into())));
+        let info = make_info(
+            None,
+            Some(vec![("Source", "https://github.com/owner/repo")]),
+        );
+        assert_eq!(
+            extract_github_url(&info),
+            Some(("owner".into(), "repo".into()))
+        );
     }
 
     #[test]
     fn test_extract_github_url_from_home_page() {
         let info = make_info(Some("https://github.com/owner/repo"), None);
-        assert_eq!(extract_github_url(&info), Some(("owner".into(), "repo".into())));
+        assert_eq!(
+            extract_github_url(&info),
+            Some(("owner".into(), "repo".into()))
+        );
     }
 
     #[test]
     fn test_extract_github_url_project_urls_preferred() {
-        let info = make_info(Some("https://github.com/wrong/wrong"), Some(vec![
-            ("Source", "https://github.com/right/repo"),
-        ]));
-        assert_eq!(extract_github_url(&info), Some(("right".into(), "repo".into())));
+        let info = make_info(
+            Some("https://github.com/wrong/wrong"),
+            Some(vec![("Source", "https://github.com/right/repo")]),
+        );
+        assert_eq!(
+            extract_github_url(&info),
+            Some(("right".into(), "repo".into()))
+        );
     }
 
     #[test]

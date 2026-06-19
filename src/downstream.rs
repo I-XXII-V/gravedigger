@@ -54,11 +54,14 @@ fn fetch_crate_rev_deps(name: &str) -> Result<CrateRevDeps, String> {
     let text = resp.text().map_err(|e| format!("Read error: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!("HTTP {} — {}", status, &text[..200.min(text.len())]));
+        return Err(format!(
+            "HTTP {} — {}",
+            status,
+            &text[..200.min(text.len())]
+        ));
     }
 
-    serde_json::from_str(&text)
-        .map_err(|e| format!("JSON error: {}", e))
+    serde_json::from_str(&text).map_err(|e| format!("JSON error: {}", e))
 }
 
 // ── Public entry point ───────────────────────────────────────────────
@@ -122,7 +125,10 @@ pub fn who_depends_crates(package: &str) {
             }
 
             println!();
-            println!("   \x1b[90mShowing {} of {} total dependents\x1b[0m", shown, total);
+            println!(
+                "   \x1b[90mShowing {} of {} total dependents\x1b[0m",
+                shown, total
+            );
         }
         Err(e) => {
             eprintln!("❌ Failed to fetch reverse dependencies: {}", e);

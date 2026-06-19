@@ -22,10 +22,15 @@ pub fn days_since_date_prefix(s: &str) -> Option<i64> {
 
 /// Map day count to health emoji using shared thresholds.
 pub fn score_from_days(days: i64) -> &'static str {
-    if days > 730 { "🪦" }
-    else if days > 365 { "🔴" }
-    else if days > 180 { "⚠️" }
-    else { "✅" }
+    if days > 730 {
+        "🪦"
+    } else if days > 365 {
+        "🔴"
+    } else if days > 180 {
+        "⚠️"
+    } else {
+        "✅"
+    }
 }
 
 /// Days since a Unix timestamp.

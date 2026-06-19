@@ -1,12 +1,14 @@
 use crate::api::*;
 use crate::display::{health_color, is_stale};
 use crate::osv;
-use crate::types::{PackageResult, ScanOutput, Summary, health_to_string, days_since_date_prefix, score_from_days};
+use crate::types::{
+    days_since_date_prefix, health_to_string, score_from_days, PackageResult, ScanOutput, Summary,
+};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 // ── Structs ──────────────────────────────────────────────────────────
@@ -55,7 +57,9 @@ fn extract_npm_deps(lock: &NpmLock) -> Vec<(String, String)> {
     if let Some(packages) = &lock.packages {
         let mut seen = std::collections::HashSet::new();
         for (path, info) in packages {
-            if path.is_empty() { continue; }
+            if path.is_empty() {
+                continue;
+            }
             if let Some(version) = &info.version {
                 let name = path.trim_start_matches("node_modules/");
                 if seen.insert(name.to_string()) {
@@ -81,7 +85,9 @@ fn get_npm_health(data: &NpmRegistryResponse) -> &'static str {
     if let Some(modified) = data.time.get("modified") {
         if let Some(days) = days_since_date_prefix(modified) {
             let health = score_from_days(days);
-            if health != "✅" { return health; }
+            if health != "✅" {
+                return health;
+            }
         } else {
             return "❓";
         }
@@ -130,11 +136,17 @@ fn get_npm_stale_reason(data: &NpmRegistryResponse) -> Option<String> {
                             if days > 730 {
                                 return Some(format!("No GitHub activity in {} days — DEAD", days));
                             }
-                        if days > 365 {
-                            return Some(format!("No GitHub activity in {} days — INACTIVE", days));
-                        }
-                        if days > 180 {
-                            return Some(format!("No GitHub activity in {} days — STALE", days));
+                            if days > 365 {
+                                return Some(format!(
+                                    "No GitHub activity in {} days — INACTIVE",
+                                    days
+                                ));
+                            }
+                            if days > 180 {
+                                return Some(format!(
+                                    "No GitHub activity in {} days — STALE",
+                                    days
+                                ));
                             }
                         }
                     }
@@ -143,6 +155,8 @@ fn get_npm_stale_reason(data: &NpmRegistryResponse) -> Option<String> {
             } else {
                 return Some("Not a GitHub repository".to_string());
             }
+        } else {
+            return Some("No repository URL".to_string());
         }
     } else {
         return Some("No repository URL".to_string());
@@ -168,10 +182,15 @@ fn fetch_npm_info(name: &str) -> Result<NpmRegistryResponse, String> {
     let text = resp.text().map_err(|e| format!("Read error: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!("HTTP {} — {}", status, &text[..200.min(text.len())]));
+        return Err(format!(
+            "HTTP {} — {}",
+            status,
+            &text[..200.min(text.len())]
+        ));
     }
 
-    serde_json::from_str(&text).map_err(|e| format!("JSON error: {} — body: {}", e, &text[..200.min(text.len())]))
+    serde_json::from_str(&text)
+        .map_err(|e| format!("JSON error: {} — body: {}", e, &text[..200.min(text.len())]))
 }
 
 // ── Public entry point ───────────────────────────────────────────────
@@ -217,7 +236,10 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
     }
 
     if !output_json {
-        println!("📦 Scanning {} npm packages from package-lock.json\n", deps.len());
+        println!(
+            "📦 Scanning {} npm packages from package-lock.json\n",
+            deps.len()
+        );
     }
 
     let count_healthy = &AtomicU32::new(0);
@@ -241,11 +263,21 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                     let health = get_npm_health(&reg);
 
                     match health {
-                        "✅" => { count_healthy.fetch_add(1, Ordering::Relaxed); }
-                        "⚠️" => { count_warning.fetch_add(1, Ordering::Relaxed); }
-                        "🔴" => { count_inactive.fetch_add(1, Ordering::Relaxed); }
-                        "🪦" => { count_dead.fetch_add(1, Ordering::Relaxed); }
-                        _ => { count_unknown.fetch_add(1, Ordering::Relaxed); }
+                        "✅" => {
+                            count_healthy.fetch_add(1, Ordering::Relaxed);
+                        }
+                        "⚠️" => {
+                            count_warning.fetch_add(1, Ordering::Relaxed);
+                        }
+                        "🔴" => {
+                            count_inactive.fetch_add(1, Ordering::Relaxed);
+                        }
+                        "🪦" => {
+                            count_dead.fetch_add(1, Ordering::Relaxed);
+                        }
+                        _ => {
+                            count_unknown.fetch_add(1, Ordering::Relaxed);
+                        }
                     }
 
                     // Query OSV for known vulnerabilities
@@ -259,14 +291,21 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                     if licenses {
                         if let Some(ref lic) = reg.license {
                             let mut lm = licenses_map.lock().unwrap();
-                            *lm.entry(if lic.is_empty() { "Unknown".into() } else { lic.clone() }).or_insert(0) += 1;
+                            *lm.entry(if lic.is_empty() {
+                                "Unknown".into()
+                            } else {
+                                lic.clone()
+                            })
+                            .or_insert(0) += 1;
                         } else {
                             let mut lm = licenses_map.lock().unwrap();
                             *lm.entry("Unknown".into()).or_insert(0) += 1;
                         }
                     }
 
-                    if stale_only && !is_stale(health) && vulns.is_empty() { return; }
+                    if stale_only && !is_stale(health) && vulns.is_empty() {
+                        return;
+                    }
 
                     if output_json {
                         let mut r = results.lock().unwrap();
@@ -327,7 +366,11 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                             vulns.len(),
                             if vulns.len() == 1 { "" } else { "s" },
                             cve_ids.join(", "),
-                            if cve_ids.len() < vulns.len() { ", ..." } else { "" },
+                            if cve_ids.len() < vulns.len() {
+                                ", ..."
+                            } else {
+                                ""
+                            },
                         ));
                         extra.push_str("\x1b[0m");
                     }
@@ -338,7 +381,11 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                         health,
                         pkg_name,
                         pkg_version,
-                        if desc.is_empty() { "no description" } else { &desc },
+                        if desc.is_empty() {
+                            "no description"
+                        } else {
+                            &desc
+                        },
                         latest,
                         extra,
                     );
@@ -379,7 +426,15 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
         let output = ScanOutput {
             ecosystem: "npm".to_string(),
             packages,
-            summary: Summary { healthy: h, warning: w, hijack: 0, inactive: i, dead: d, unknown: u, cves: c },
+            summary: Summary {
+                healthy: h,
+                warning: w,
+                hijack: 0,
+                inactive: i,
+                dead: d,
+                unknown: u,
+                cves: c,
+            },
         };
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {
@@ -444,9 +499,24 @@ mod tests {
     fn test_extract_npm_deps_v3_format() {
         let lock = NpmLock {
             packages: Some(HashMap::from([
-                ("node_modules/foo".into(), NpmPkg { version: Some("1.0.0".into()) }),
-                ("node_modules/bar".into(), NpmPkg { version: Some("2.0.0".into()) }),
-                ("".into(), NpmPkg { version: Some("1.0.0".into()) }), // root = skip
+                (
+                    "node_modules/foo".into(),
+                    NpmPkg {
+                        version: Some("1.0.0".into()),
+                    },
+                ),
+                (
+                    "node_modules/bar".into(),
+                    NpmPkg {
+                        version: Some("2.0.0".into()),
+                    },
+                ),
+                (
+                    "".into(),
+                    NpmPkg {
+                        version: Some("1.0.0".into()),
+                    },
+                ), // root = skip
             ])),
             dependencies: None,
         };
@@ -461,8 +531,18 @@ mod tests {
         let lock = NpmLock {
             packages: None,
             dependencies: Some(HashMap::from([
-                ("foo".into(), NpmDep { version: "1.0.0".into() }),
-                ("bar".into(), NpmDep { version: "2.0.0".into() }),
+                (
+                    "foo".into(),
+                    NpmDep {
+                        version: "1.0.0".into(),
+                    },
+                ),
+                (
+                    "bar".into(),
+                    NpmDep {
+                        version: "2.0.0".into(),
+                    },
+                ),
             ])),
         };
         let deps = extract_npm_deps(&lock);
@@ -485,8 +565,18 @@ mod tests {
     fn test_extract_npm_deps_nested_not_deduped() {
         let lock = NpmLock {
             packages: Some(HashMap::from([
-                ("node_modules/foo".into(), NpmPkg { version: Some("1.0.0".into()) }),
-                ("node_modules/other/node_modules/foo".into(), NpmPkg { version: Some("2.0.0".into()) }),
+                (
+                    "node_modules/foo".into(),
+                    NpmPkg {
+                        version: Some("1.0.0".into()),
+                    },
+                ),
+                (
+                    "node_modules/other/node_modules/foo".into(),
+                    NpmPkg {
+                        version: Some("2.0.0".into()),
+                    },
+                ),
             ])),
             dependencies: None,
         };
