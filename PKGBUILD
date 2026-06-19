@@ -2,7 +2,7 @@
 # Contributor: I-XXII-V
 
 pkgname=watchtower
-pkgver=0.2.1
+pkgver=0.2.3
 pkgrel=1
 pkgdesc="CLI tool to check the health of your dependencies across AUR, Cargo, npm, PyPI, and Go"
 arch=('x86_64')
