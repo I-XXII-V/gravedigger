@@ -41,6 +41,11 @@ pub fn osv_ecosystem(eco: &str) -> Option<&'static str> {
         "npm" => Some("npm"),
         "PyPI" => Some("PyPI"),
         "Go" => Some("Go"),
+        "RubyGems" => Some("RubyGems"),
+        "NuGet" => Some("NuGet"),
+        "Maven" => Some("Maven"),
+        "Packagist" => Some("Packagist"),
+        "Hex" => Some("Hex"),
         // No AUR support — AUR packages don't map to OSV
         _ => None,
     }
@@ -143,12 +148,19 @@ mod tests {
         assert_eq!(osv_ecosystem("npm"), Some("npm"));
         assert_eq!(osv_ecosystem("PyPI"), Some("PyPI"));
         assert_eq!(osv_ecosystem("Go"), Some("Go"));
+        assert_eq!(osv_ecosystem("RubyGems"), Some("RubyGems"));
+        assert_eq!(osv_ecosystem("NuGet"), Some("NuGet"));
+        assert_eq!(osv_ecosystem("Maven"), Some("Maven"));
+        assert_eq!(osv_ecosystem("Packagist"), Some("Packagist"));
+        assert_eq!(osv_ecosystem("Hex"), Some("Hex"));
     }
 
     #[test]
     fn test_osv_ecosystem_unsupported() {
         assert_eq!(osv_ecosystem("aur"), None);
-        assert_eq!(osv_ecosystem("rubygems"), None);
+        assert_eq!(osv_ecosystem("rubygems"), None); // case-sensitive
+        assert_eq!(osv_ecosystem("Cargo"), None);
+        assert_eq!(osv_ecosystem("PIP"), None);
     }
 
     #[test]
