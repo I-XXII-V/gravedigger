@@ -79,7 +79,7 @@ pub fn health_color(health: &str) -> &str {
 }
 
 pub fn is_stale(health: &str) -> bool {
-    health == "🪦" || health == "🔴" || health == "⚠️" || health == "❓" || health == "🚩"
+    health == "🪦" || health == "🔴" || health == "⚠️" || health == "🚩"
 }
 
 pub fn fmt_downloads(n: u64) -> String {
@@ -341,7 +341,7 @@ pub fn scan_installed(stale_only: bool, output_json: bool, ci: bool) {
         );
     }
 
-    if ci && d > 0 {
+    if ci && (d > 0 || j > 0) {
         std::process::exit(1);
     }
 }
@@ -662,7 +662,7 @@ mod tests {
 
     #[test]
     fn test_is_stale_unknown() {
-        assert!(is_stale("❓"));
+        assert!(!is_stale("❓")); // unknown = not stale by definition
     }
 
     #[test]

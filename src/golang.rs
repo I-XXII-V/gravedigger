@@ -1,4 +1,4 @@
-use crate::api::*;
+use crate::api::{fetch_github_info, http_client, safe_prefix, GitHubRepo};
 use crate::display::{health_color, is_stale};
 use crate::osv;
 use crate::types::{
@@ -84,29 +84,31 @@ fn get_go_health(proxy: &GoProxyResponse) -> &'static str {
 }
 
 /// Check if a Go module has been hijacked on GitHub.
-/// Returns `Some(reason)` if hijack risk detected.
-fn get_go_hijack(mod_path: &str) -> Option<String> {
-    let (owner, repo) = go_mod_to_github(mod_path)?;
+/// Accepts cached `gh` data to avoid a second GitHub API call.
+/// `gh_result` is `Ok(gh)` if the fetch succeeded, `Err(msg)` if it failed.
+fn get_go_hijack(mod_path: &str, gh_result: Option<Result<&GitHubRepo, &str>>) -> Option<String> {
+    let (_owner, _repo) = go_mod_to_github(mod_path)?;
 
-    match fetch_github_info(&owner, &repo) {
-        Ok(gh) => {
+    match gh_result {
+        Some(Ok(gh)) => {
             if gh.archived {
                 Some("Repo is archived — may be hijacked".to_string())
             } else {
                 None
             }
         }
-        Err(e) => {
+        Some(Err(e)) => {
             if e.contains("404") {
                 Some("GitHub repo not found (404) — module path may be hijacked".to_string())
             } else {
-                None // Network error — can't determine
+                None
             }
         }
+        None => None, // Non-GitHub module; no hijack risk
     }
 }
 
-fn get_go_stale_reason(proxy: &GoProxyResponse, mod_path: &str) -> Option<String> {
+fn get_go_stale_reason(proxy: &GoProxyResponse, gh: Option<&GitHubRepo>) -> Option<String> {
     if let Some(days) = days_since_date_prefix(&proxy.Time) {
         if days > 730 {
             return Some(format!("No release in {} days — DEAD", days));
@@ -119,27 +121,23 @@ fn get_go_stale_reason(proxy: &GoProxyResponse, mod_path: &str) -> Option<String
         }
     }
 
-    if let Some((owner, repo)) = go_mod_to_github(mod_path) {
-        match fetch_github_info(&owner, &repo) {
-            Ok(gh) => {
-                if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
-                    if days > 730 {
-                        return Some(format!("No GitHub activity in {} days — DEAD", days));
-                    }
-                    if days > 365 {
-                        return Some(format!("No GitHub activity in {} days — INACTIVE", days));
-                    }
-                    if days > 180 {
-                        return Some(format!("No GitHub activity in {} days — STALE", days));
-                    }
-                }
+    // Go proxy is healthy — check cached GitHub data
+    if let Some(gh) = gh {
+        if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+            if days > 730 {
+                return Some(format!("No GitHub activity in {} days — DEAD", days));
             }
-            Err(e) => return Some(format!("GitHub fetch failed: {}", e)),
+            if days > 365 {
+                return Some(format!("No GitHub activity in {} days — INACTIVE", days));
+            }
+            if days > 180 {
+                return Some(format!("No GitHub activity in {} days — STALE", days));
+            }
         }
-    } else {
-        return Some("Not a GitHub-hosted module".to_string());
+        return None;
     }
 
+    // No GitHub data and Go proxy is healthy — not stale
     None
 }
 
@@ -149,8 +147,7 @@ fn fetch_go_proxy(mod_path: &str) -> Result<GoProxyResponse, String> {
     let encoded = mod_path.replace('/', "%2F");
     let url = format!("https://proxy.golang.org/{}/@latest", encoded);
 
-    let client = reqwest::blocking::Client::new();
-    let resp = client
+    let resp = http_client()
         .get(&url)
         .header("User-Agent", "watchtower")
         .send()
@@ -160,11 +157,7 @@ fn fetch_go_proxy(mod_path: &str) -> Result<GoProxyResponse, String> {
     let text = resp.text().map_err(|e| format!("Read error: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!(
-            "HTTP {} — {}",
-            status,
-            &text[..200.min(text.len())]
-        ));
+        return Err(format!("HTTP {} — {}", status, safe_prefix(&text, 200)));
     }
 
     serde_json::from_str(&text).map_err(|e| format!("JSON error: {}", e))
@@ -172,7 +165,10 @@ fn fetch_go_proxy(mod_path: &str) -> Result<GoProxyResponse, String> {
 
 // ── Public entry point ───────────────────────────────────────────────
 
-pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, _licenses: bool) {
+pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool) {
+    if licenses && !output_json {
+        eprintln!("⚠️  --licenses is not supported for Go modules (go.mod has no license metadata)");
+    }
     if fs::metadata("go.mod").is_err() {
         eprintln!("❌ go.mod not found in current directory");
         return;
@@ -221,10 +217,19 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, _licenses: bo
             let results = Arc::clone(&results);
             s.spawn(move || match fetch_go_proxy(&mod_name) {
                 Ok(proxy) => {
+                    // Fetch GitHub info ONCE for GitHub-hosted Go modules
+                    let gh_result: Option<Result<GitHubRepo, String>> =
+                        go_mod_to_github(&mod_name)
+                            .map(|(owner, repo)| fetch_github_info(&owner, &repo));
+
+                    let gh_ref = gh_result.as_ref().and_then(|r| r.as_ref().ok());
+
                     let proxy_health = get_go_health(&proxy);
 
-                    // Check hijack risk (only for GitHub-hosted modules)
-                    let hijack = get_go_hijack(&mod_name);
+                    // Hijack check shares the same GitHub data
+                    let hijack = get_go_hijack(&mod_name, gh_result.as_ref().map(|r| {
+                        r.as_ref().map_err(|e| e.as_str())
+                    }));
                     let health = if hijack.is_some() { "🚩" } else { proxy_health };
 
                     match health {
@@ -247,8 +252,11 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, _licenses: bo
                         return;
                     }
 
+                    // Stale reason uses cached gh_ref — no second GitHub call
+                    let stale_reason_raw = get_go_stale_reason(&proxy, gh_ref);
+
                     if output_json {
-                        let stale_reason = hijack.clone().or_else(|| get_go_stale_reason(&proxy, &mod_name));
+                        let sr = hijack.clone().or(stale_reason_raw);
                         let mut r = results.lock().unwrap();
                         r.push(PackageResult {
                             name: mod_name.clone(),
@@ -256,7 +264,7 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, _licenses: bo
                             health: health_to_string(health),
                             description: None,
                             latest_version: Some(proxy.Version.trim_start_matches('v').to_string()),
-                            stale_reason,
+                            stale_reason: sr,
                                 vulns: vulns.clone(),
                                 provenance: None,
                             });
@@ -273,7 +281,7 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, _licenses: bo
                     }
 
                     if stale_only {
-                        if let Some(reason) = get_go_stale_reason(&proxy, &mod_name) {
+                        if let Some(reason) = stale_reason_raw.as_ref() {
                             extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
                         }
                     }
@@ -460,15 +468,15 @@ require (
 
     #[test]
     fn test_get_go_hijack_non_github() {
-        // Non-GitHub modules can't be hijack-checked
-        assert_eq!(get_go_hijack("gitlab.com/owner/repo"), None);
-        assert_eq!(get_go_hijack("bitbucket.org/owner/repo"), None);
-        assert_eq!(get_go_hijack("example.com/module"), None);
+        // Non-GitHub modules can't be hijack-checked — pass None for gh_result
+        assert_eq!(get_go_hijack("gitlab.com/owner/repo", None), None);
+        assert_eq!(get_go_hijack("bitbucket.org/owner/repo", None), None);
+        assert_eq!(get_go_hijack("example.com/module", None), None);
     }
 
     #[test]
     fn test_get_go_hijack_too_short() {
         // Module path too short to extract owner/repo
-        assert_eq!(get_go_hijack("github.com/owner"), None);
+        assert_eq!(get_go_hijack("github.com/owner", None), None);
     }
 }

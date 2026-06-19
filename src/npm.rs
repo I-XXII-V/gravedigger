@@ -1,4 +1,4 @@
-use crate::api::*;
+use crate::api::{fetch_github_info, http_client, parse_github_repo, safe_prefix, GitHubRepo};
 use crate::display::{health_color, is_stale};
 use crate::osv;
 use crate::types::{
@@ -132,23 +132,26 @@ struct NpmRunDetails {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-fn clean_github_url(raw: &str) -> &str {
-    let s = raw.trim_start_matches("git+");
-    s.trim_end_matches(".git")
-}
-
 fn extract_npm_deps(lock: &NpmLock) -> Vec<(String, String)> {
     let mut deps = Vec::new();
 
     if let Some(packages) = &lock.packages {
+        // Track (name, version) pairs so nested packages at different
+        // versions (e.g. foo@1.0.0 and foo@2.0.0) are both kept.
         let mut seen = std::collections::HashSet::new();
         for (path, info) in packages {
             if path.is_empty() {
                 continue;
             }
             if let Some(version) = &info.version {
-                let name = path.trim_start_matches("node_modules/");
-                if seen.insert(name.to_string()) {
+                // Use rsplitn to handle nested node_modules correctly:
+                // "node_modules/a/node_modules/b" → "b", not "a/node_modules/b"
+                let name = path
+                    .rsplit("node_modules/")
+                    .next()
+                    .unwrap_or(path);
+                let key = (name.to_string(), version.clone());
+                if seen.insert(key) {
                     deps.push((name.to_string(), version.clone()));
                 }
             }
@@ -167,7 +170,13 @@ fn extract_npm_deps(lock: &NpmLock) -> Vec<(String, String)> {
 
 // ── Health scoring ───────────────────────────────────────────────────
 
-fn get_npm_health(data: &NpmRegistryResponse) -> &'static str {
+/// Compute npm package health.
+///
+/// Uses the npm registry `modified` date first. If the registry says
+/// healthy (✅), falls back to GitHub `pushed_at` for finer granularity.
+/// `gh` is an optional cached `GitHubRepo` — pass `None` to skip the
+/// GitHub check (no second API call).
+fn get_npm_health(data: &NpmRegistryResponse, gh: Option<&GitHubRepo>) -> &'static str {
     if let Some(modified) = data.time.get("modified") {
         if let Some(days) = days_since_date_prefix(modified) {
             let health = score_from_days(days);
@@ -181,23 +190,28 @@ fn get_npm_health(data: &NpmRegistryResponse) -> &'static str {
         return "❓";
     }
 
-    if let Some(repo) = &data.repository {
-        if let Some(ref url) = repo.url {
-            let clean = clean_github_url(url);
-            if let Some((owner, repo_name)) = parse_github_repo(clean) {
-                if let Ok(gh) = fetch_github_info(&owner, &repo_name) {
-                    if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
-                        return score_from_days(days);
-                    }
-                }
-            }
+    // Registry says fresh (✅) — use cached GitHub data for finer score
+    if let Some(gh) = gh {
+        if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+            return score_from_days(days);
         }
     }
 
     "✅"
 }
 
-fn get_npm_stale_reason(data: &NpmRegistryResponse) -> Option<String> {
+/// Stale reason for npm packages.
+///
+/// Returns `None` when the package is fully healthy (both npm registry
+/// and GitHub are active).  This prevents false positives where a healthy
+/// package with no GitHub URL would get "No repository URL" as a stale
+/// reason.
+///
+/// `gh` is an optional cached `GitHubRepo`.  When the registry-side
+/// check does not find staleness but `gh` is `None`, we return `None`
+/// (the absence of a GitHub repo is not a health problem).
+fn get_npm_stale_reason(data: &NpmRegistryResponse, gh: Option<&GitHubRepo>) -> Option<String> {
+    // 1) Check npm registry modified date
     if let Some(modified) = data.time.get("modified") {
         if let Some(days) = days_since_date_prefix(modified) {
             if days > 730 {
@@ -212,42 +226,24 @@ fn get_npm_stale_reason(data: &NpmRegistryResponse) -> Option<String> {
         }
     }
 
-    if let Some(repo) = &data.repository {
-        if let Some(ref url) = repo.url {
-            let clean = clean_github_url(url);
-            if let Some((owner, repo_name)) = parse_github_repo(clean) {
-                match fetch_github_info(&owner, &repo_name) {
-                    Ok(gh) => {
-                        if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
-                            if days > 730 {
-                                return Some(format!("No GitHub activity in {} days — DEAD", days));
-                            }
-                            if days > 365 {
-                                return Some(format!(
-                                    "No GitHub activity in {} days — INACTIVE",
-                                    days
-                                ));
-                            }
-                            if days > 180 {
-                                return Some(format!(
-                                    "No GitHub activity in {} days — STALE",
-                                    days
-                                ));
-                            }
-                        }
-                    }
-                    Err(e) => return Some(format!("GitHub fetch failed: {}", e)),
-                }
-            } else {
-                return Some("Not a GitHub repository".to_string());
+    // 2) Registry is healthy (≤180 days) — check cached GitHub data
+    if let Some(gh) = gh {
+        if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+            if days > 730 {
+                return Some(format!("No GitHub activity in {} days — DEAD", days));
             }
-        } else {
-            return Some("No repository URL".to_string());
+            if days > 365 {
+                return Some(format!("No GitHub activity in {} days — INACTIVE", days));
+            }
+            if days > 180 {
+                return Some(format!("No GitHub activity in {} days — STALE", days));
+            }
         }
-    } else {
-        return Some("No repository URL".to_string());
+        // gh is present and activity is ≤180 days → healthy
+        return None;
     }
 
+    // 3) No GitHub data and registry is healthy — not stale
     None
 }
 
@@ -257,8 +253,7 @@ fn fetch_npm_info(name: &str) -> Result<NpmRegistryResponse, String> {
     let encoded = name.replace('/', "%2F");
     let url = format!("https://registry.npmjs.org/{}", encoded);
 
-    let client = reqwest::blocking::Client::new();
-    let resp = client
+    let resp = http_client()
         .get(&url)
         .header("User-Agent", "watchtower")
         .send()
@@ -268,15 +263,11 @@ fn fetch_npm_info(name: &str) -> Result<NpmRegistryResponse, String> {
     let text = resp.text().map_err(|e| format!("Read error: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!(
-            "HTTP {} — {}",
-            status,
-            &text[..200.min(text.len())]
-        ));
+        return Err(format!("HTTP {} — {}", status, safe_prefix(&text, 200)));
     }
 
     serde_json::from_str(&text)
-        .map_err(|e| format!("JSON error: {} — body: {}", e, &text[..200.min(text.len())]))
+        .map_err(|e| format!("JSON error: {} — body: {}", e, safe_prefix(&text, 200)))
 }
 
 /// Fetch npm provenance attestations for a package at a specific version.
@@ -297,8 +288,7 @@ fn fetch_npm_attestation(name: &str, version: &str) -> String {
         encoded, version
     );
 
-    let client = reqwest::blocking::Client::new();
-    let resp = match client
+    let resp = match http_client()
         .get(&url)
         .header("User-Agent", "watchtower")
         .send()
@@ -461,7 +451,17 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
             let licenses_map = Arc::clone(&licenses_map);
             s.spawn(move || match fetch_npm_info(&pkg_name) {
                 Ok(reg) => {
-                    let health = get_npm_health(&reg);
+                    // Fetch GitHub info ONCE — shared by health scoring and stale reason
+                    let gh_info: Option<GitHubRepo> = reg
+                        .repository
+                        .as_ref()
+                        .and_then(|r| r.url.as_deref())
+                        .and_then(|url| {
+                            let (owner, repo) = parse_github_repo(url)?;
+                            fetch_github_info(&owner, &repo).ok()
+                        });
+
+                    let health = get_npm_health(&reg, gh_info.as_ref());
 
                     match health {
                         "✅" => {
@@ -493,6 +493,9 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                         track_license(&licenses_map, reg.license.as_deref());
                     }
 
+                    // Stale reason uses cached gh_info — no second API call
+                    let stale_reason = get_npm_stale_reason(&reg, gh_info.as_ref());
+
                     if stale_only && !is_stale(health) && vulns.is_empty() {
                         return;
                     }
@@ -508,7 +511,7 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                             health: health_to_string(health),
                             description: reg.description.clone(),
                             latest_version: reg.dist_tags.get("latest").cloned(),
-                            stale_reason: get_npm_stale_reason(&reg),
+                            stale_reason,
                             vulns: vulns.clone(),
                             provenance: Some(provenance.clone()),
                         });
@@ -533,7 +536,7 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                     let mut extra = String::new();
 
                     if stale_only {
-                        if let Some(reason) = get_npm_stale_reason(&reg) {
+                        if let Some(reason) = stale_reason.as_ref() {
                             extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
                         }
                     }
@@ -647,30 +650,6 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_clean_github_url_git_https() {
-        assert_eq!(
-            clean_github_url("git+https://github.com/owner/repo.git"),
-            "https://github.com/owner/repo"
-        );
-    }
-
-    #[test]
-    fn test_clean_github_url_git_protocol() {
-        assert_eq!(
-            clean_github_url("git://github.com/owner/repo.git"),
-            "git://github.com/owner/repo"
-        );
-    }
-
-    #[test]
-    fn test_clean_github_url_no_git_prefix() {
-        assert_eq!(
-            clean_github_url("https://github.com/owner/repo"),
-            "https://github.com/owner/repo"
-        );
-    }
 
     #[test]
     fn test_extract_npm_deps_v3_format() {

@@ -98,6 +98,12 @@ pub struct Summary {
     pub cves: u32,
 }
 
+impl Default for Summary {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Summary {
     pub fn new() -> Self {
         Self {

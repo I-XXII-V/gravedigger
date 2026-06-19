@@ -1,4 +1,4 @@
-use crate::api::*;
+use crate::api::{fetch_github_info, http_client, parse_github_repo, safe_prefix, GitHubRepo};
 use crate::display::{health_color, is_stale};
 use crate::osv;
 use crate::types::{
@@ -112,7 +112,7 @@ fn parse_pipfile_lock(path: &str) -> Result<Vec<(String, String)>, String> {
 
 // ── Health scoring ───────────────────────────────────────────────────
 
-fn get_pypi_health(info: &PyPIInfo, urls: &[PyPIUrl]) -> &'static str {
+fn get_pypi_health(_info: &PyPIInfo, urls: &[PyPIUrl], gh: Option<&GitHubRepo>) -> &'static str {
     if let Some(url) = urls.first() {
         if let Some(ref upload_time) = url.upload_time {
             let clean = upload_time.trim_end_matches('Z');
@@ -131,11 +131,10 @@ fn get_pypi_health(info: &PyPIInfo, urls: &[PyPIUrl]) -> &'static str {
         return "❓";
     }
 
-    if let Some((owner, repo)) = extract_github_url(info) {
-        if let Ok(gh) = fetch_github_info(&owner, &repo) {
-            if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
-                return score_from_days(days);
-            }
+    // PyPI says fresh — check cached GitHub data
+    if let Some(gh) = gh {
+        if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+            return score_from_days(days);
         }
     }
 
@@ -144,13 +143,14 @@ fn get_pypi_health(info: &PyPIInfo, urls: &[PyPIUrl]) -> &'static str {
 
 /// Stale reason for PyPI packages.
 ///
-/// Strategy (mirrors `get_crate_health` in cargo.rs):
-/// 1. Check PyPI `upload_time` — if stale (⚠️/🔴/🪦), return reason immediately.
-/// 2. If PyPI says ✅ (days ≤ 180), still check GitHub `pushed_at` for finer
-///    granularity. A package may have a stale upload but an active repo.
-/// 3. If GitHub check passes (< 180 days), function falls through to `None` —
-///    this is correct: PyPI said STALE but GitHub override makes it healthy ✅.
-fn get_pypi_stale_reason(info: &PyPIInfo, urls: &[PyPIUrl]) -> Option<String> {
+/// Returns `None` when the package is fully healthy (both PyPI and
+/// GitHub are active).  This prevents false positives where a healthy
+/// package with no GitHub URL would get "No GitHub repository found" as
+/// a stale reason.
+///
+/// `gh` is an optional cached `GitHubRepo`.  When the PyPI check does
+/// not find staleness but `gh` is `None`, we return `None`.
+fn get_pypi_stale_reason(_info: &PyPIInfo, urls: &[PyPIUrl], gh: Option<&GitHubRepo>) -> Option<String> {
     if let Some(url) = urls.first() {
         if let Some(ref upload_time) = url.upload_time {
             let clean = upload_time.trim_end_matches('Z');
@@ -168,27 +168,23 @@ fn get_pypi_stale_reason(info: &PyPIInfo, urls: &[PyPIUrl]) -> Option<String> {
         }
     }
 
-    if let Some((owner, repo)) = extract_github_url(info) {
-        match fetch_github_info(&owner, &repo) {
-            Ok(gh) => {
-                if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
-                    if days > 730 {
-                        return Some(format!("No GitHub activity in {} days — DEAD", days));
-                    }
-                    if days > 365 {
-                        return Some(format!("No GitHub activity in {} days — INACTIVE", days));
-                    }
-                    if days > 180 {
-                        return Some(format!("No GitHub activity in {} days — STALE", days));
-                    }
-                }
+    // PyPI is healthy — check cached GitHub data
+    if let Some(gh) = gh {
+        if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+            if days > 730 {
+                return Some(format!("No GitHub activity in {} days — DEAD", days));
             }
-            Err(e) => return Some(format!("GitHub fetch failed: {}", e)),
+            if days > 365 {
+                return Some(format!("No GitHub activity in {} days — INACTIVE", days));
+            }
+            if days > 180 {
+                return Some(format!("No GitHub activity in {} days — STALE", days));
+            }
         }
-    } else {
-        return Some("No GitHub repository found".to_string());
+        return None;
     }
 
+    // No GitHub data and PyPI is healthy — not stale
     None
 }
 
@@ -196,8 +192,7 @@ fn get_pypi_stale_reason(info: &PyPIInfo, urls: &[PyPIUrl]) -> Option<String> {
 
 fn fetch_pypi_info(name: &str) -> Result<PyPIResponse, String> {
     let url = format!("https://pypi.org/pypi/{}/json", name);
-    let client = reqwest::blocking::Client::new();
-    let resp = client
+    let resp = http_client()
         .get(&url)
         .header("User-Agent", "watchtower")
         .send()
@@ -207,11 +202,7 @@ fn fetch_pypi_info(name: &str) -> Result<PyPIResponse, String> {
     let text = resp.text().map_err(|e| format!("Read error: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!(
-            "HTTP {} — {}",
-            status,
-            &text[..200.min(text.len())]
-        ));
+        return Err(format!("HTTP {} — {}", status, safe_prefix(&text, 200)));
     }
 
     serde_json::from_str(&text).map_err(|e| format!("JSON error: {}", e))
@@ -287,7 +278,11 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
             let licenses_map = Arc::clone(&licenses_map);
             s.spawn(move || match fetch_pypi_info(&pkg_name) {
                 Ok(resp) => {
-                    let health = get_pypi_health(&resp.info, &resp.urls);
+                    // Fetch GitHub info ONCE — shared by health + stale_reason
+                    let gh_info: Option<GitHubRepo> = extract_github_url(&resp.info)
+                        .and_then(|(owner, repo)| fetch_github_info(&owner, &repo).ok());
+
+                    let health = get_pypi_health(&resp.info, &resp.urls, gh_info.as_ref());
 
                     match health {
                         "✅" => count_healthy.fetch_add(1, Ordering::Relaxed),
@@ -309,6 +304,8 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
                         track_license(&licenses_map, resp.info.license.as_deref());
                     }
 
+                    let stale_reason = get_pypi_stale_reason(&resp.info, &resp.urls, gh_info.as_ref());
+
                     if stale_only && !is_stale(health) && vulns.is_empty() {
                         return;
                     }
@@ -321,7 +318,7 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
                             health: health_to_string(health),
                             description: resp.info.summary.clone(),
                             latest_version: Some(resp.info.version.clone()),
-                            stale_reason: get_pypi_stale_reason(&resp.info, &resp.urls),
+                            stale_reason,
                                 vulns: vulns.clone(),
                                 provenance: None,
                             });
@@ -333,7 +330,7 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
                     let mut extra = String::new();
 
                     if stale_only {
-                        if let Some(reason) = get_pypi_stale_reason(&resp.info, &resp.urls) {
+                        if let Some(reason) = stale_reason.as_ref() {
                             extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
                         }
                     }
