@@ -5,6 +5,7 @@ use crate::types::{
     collect_results, days_since_date_prefix, health_to_string, print_summary, score_from_days,
     track_license, PackageResult, ScanOutput, Summary,
 };
+use base64::Engine;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -43,6 +44,88 @@ struct NpmRegistryResponse {
 #[derive(Deserialize)]
 struct NpmRepo {
     url: Option<String>,
+}
+
+// ── NPM provenance attestation structs ───────────────────────────────
+
+#[derive(Deserialize)]
+struct NpmAttestationsResponse {
+    attestations: Vec<NpmAttestation>,
+}
+
+#[derive(Deserialize)]
+struct NpmAttestation {
+    #[serde(rename = "predicateType")]
+    predicate_type: String,
+    bundle: NpmBundle,
+}
+
+#[derive(Deserialize)]
+struct NpmBundle {
+    #[serde(rename = "dsseEnvelope")]
+    dsse_envelope: NpmDsseEnvelope,
+}
+
+#[derive(Deserialize)]
+struct NpmDsseEnvelope {
+    payload: String, // base64-encoded JSON
+}
+
+#[derive(Deserialize)]
+struct NpmProvenancePayload {
+    predicate: NpmPredicate,
+}
+
+#[derive(Deserialize)]
+struct NpmPredicate {
+    #[serde(rename = "buildDefinition")]
+    build_definition: NpmBuildDefinition,
+    #[serde(rename = "runDetails")]
+    run_details: NpmRunDetails,
+}
+
+#[derive(Deserialize)]
+struct NpmBuildDefinition {
+    #[serde(rename = "externalParameters")]
+    external_parameters: NpmExternalParams,
+    #[serde(rename = "resolvedDependencies")]
+    resolved_dependencies: Vec<NpmResolvedDep>,
+}
+
+#[derive(Deserialize)]
+struct NpmExternalParams {
+    workflow: Option<NpmWorkflow>,
+}
+
+#[derive(Deserialize)]
+struct NpmWorkflow {
+    repository: String,
+    #[allow(dead_code)]
+    path: String,
+}
+
+#[derive(Deserialize)]
+struct NpmResolvedDep {
+    #[allow(dead_code)]
+    uri: String,
+    digest: HashMap<String, String>,
+}
+
+#[derive(Deserialize)]
+struct NpmBuilder {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct NpmMetadata {
+    #[serde(rename = "invocationId")]
+    invocation_id: String,
+}
+
+#[derive(Deserialize)]
+struct NpmRunDetails {
+    builder: NpmBuilder,
+    metadata: NpmMetadata,
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -194,6 +277,73 @@ fn fetch_npm_info(name: &str) -> Result<NpmRegistryResponse, String> {
         .map_err(|e| format!("JSON error: {} — body: {}", e, &text[..200.min(text.len())]))
 }
 
+/// Parsed npm provenance information for display.
+struct ProvenanceInfo {
+    repo: String,
+    commit: String,
+    builder: String,
+    #[allow(dead_code)]
+    workflow_run: String,
+}
+
+/// Fetch npm provenance attestations for a package at a specific version.
+fn fetch_npm_attestations(name: &str, version: &str) -> Option<ProvenanceInfo> {
+    let encoded = name.replace('/', "%2F");
+    let url = format!(
+        "https://registry.npmjs.org/-/npm/v1/attestations/{}@{}",
+        encoded, version
+    );
+
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "watchtower")
+        .send()
+        .ok()?;
+
+    if !resp.status().is_success() {
+        return None;
+    }
+
+    let text = resp.text().ok()?;
+    let att_response: NpmAttestationsResponse = serde_json::from_str(&text).ok()?;
+
+    // Find the SLSA provenance attestation
+    for att in &att_response.attestations {
+        if !att.predicate_type.contains("slsa.dev/provenance") {
+            continue;
+        }
+
+        // Decode base64 payload
+        let payload_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&att.bundle.dsse_envelope.payload)
+            .ok()?;
+
+        let payload: NpmProvenancePayload = serde_json::from_slice(&payload_bytes).ok()?;
+        let pred = &payload.predicate;
+
+        let workflow = pred.build_definition.external_parameters.workflow.as_ref()?;
+        let commit = pred
+            .build_definition
+            .resolved_dependencies
+            .first()?
+            .digest
+            .get("gitCommit")?
+            .clone();
+
+        let short_commit = commit.get(..7).unwrap_or(&commit).to_string();
+
+        return Some(ProvenanceInfo {
+            repo: workflow.repository.trim_start_matches("https://").to_string(),
+            commit: short_commit,
+            builder: pred.run_details.builder.id.clone(),
+            workflow_run: pred.run_details.metadata.invocation_id.clone(),
+        });
+    }
+
+    None
+}
+
 // ── Public entry point ───────────────────────────────────────────────
 
 pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool) {
@@ -332,6 +482,14 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                         if let Some(reason) = get_npm_stale_reason(&reg) {
                             extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
                         }
+                    }
+
+                    // Check npm provenance attestation
+                    if let Some(prov) = fetch_npm_attestations(&pkg_name, &pkg_version) {
+                        extra.push_str(&format!(
+                            "\n   \x1b[32m📜 Provenance\x1b[0m: {}@{} (built by {})",
+                            prov.repo, prov.commit, prov.builder
+                        ));
                     }
 
                     if !vulns.is_empty() {
