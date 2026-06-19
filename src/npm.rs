@@ -1,8 +1,7 @@
 use crate::api::*;
 use crate::display::{health_color, is_stale};
 use crate::osv;
-use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
-use chrono::{Utc, NaiveDate};
+use crate::types::{PackageResult, ScanOutput, Summary, health_to_string, days_since_date_prefix, score_from_days};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -80,11 +79,9 @@ fn extract_npm_deps(lock: &NpmLock) -> Vec<(String, String)> {
 
 fn get_npm_health(data: &NpmRegistryResponse) -> &'static str {
     if let Some(modified) = data.time.get("modified") {
-        if let Ok(updated) = NaiveDate::parse_from_str(&modified[..10], "%Y-%m-%d") {
-            let days = (Utc::now().date_naive() - updated).num_days();
-            if days > 730 { return "🪦"; }
-            if days > 365 { return "🔴"; }
-            if days > 180 { return "⚠️"; }
+        if let Some(days) = days_since_date_prefix(modified) {
+            let health = score_from_days(days);
+            if health != "✅" { return health; }
         } else {
             return "❓";
         }
@@ -97,12 +94,8 @@ fn get_npm_health(data: &NpmRegistryResponse) -> &'static str {
             let clean = clean_github_url(url);
             if let Some((owner, repo_name)) = parse_github_repo(clean) {
                 if let Ok(gh) = fetch_github_info(&owner, &repo_name) {
-                    let pushed = &gh.pushed_at[..10];
-                    if let Ok(last) = NaiveDate::parse_from_str(pushed, "%Y-%m-%d") {
-                        let days = (Utc::now().date_naive() - last).num_days();
-                        if days > 730 { return "🪦"; }
-                        if days > 365 { return "🔴"; }
-                        if days > 180 { return "⚠️"; }
+                    if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+                        return score_from_days(days);
                     }
                 }
             }
@@ -114,8 +107,7 @@ fn get_npm_health(data: &NpmRegistryResponse) -> &'static str {
 
 fn get_npm_stale_reason(data: &NpmRegistryResponse) -> Option<String> {
     if let Some(modified) = data.time.get("modified") {
-        if let Ok(updated) = NaiveDate::parse_from_str(&modified[..10], "%Y-%m-%d") {
-            let days = (Utc::now().date_naive() - updated).num_days();
+        if let Some(days) = days_since_date_prefix(modified) {
             if days > 730 {
                 return Some(format!("No update on npm in {} days — DEAD", days));
             }
@@ -134,9 +126,7 @@ fn get_npm_stale_reason(data: &NpmRegistryResponse) -> Option<String> {
             if let Some((owner, repo_name)) = parse_github_repo(clean) {
                 match fetch_github_info(&owner, &repo_name) {
                     Ok(gh) => {
-                        let pushed = &gh.pushed_at[..10];
-                        if let Ok(last) = NaiveDate::parse_from_str(pushed, "%Y-%m-%d") {
-                            let days = (Utc::now().date_naive() - last).num_days();
+                        if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
                             if days > 730 {
                                 return Some(format!("No GitHub activity in {} days — DEAD", days));
                             }

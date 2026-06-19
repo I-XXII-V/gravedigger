@@ -50,7 +50,7 @@ impl Cache {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        let tmp = path.with_extension("tmp");
+        let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
         if fs::write(&tmp, data).is_ok() {
             let _ = fs::rename(&tmp, &path);
         }

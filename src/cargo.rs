@@ -1,8 +1,7 @@
 use crate::api::*;
 use crate::display::{fmt_downloads, health_color, is_stale};
 use crate::osv;
-use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
-use chrono::{Utc, NaiveDate};
+use crate::types::{PackageResult, ScanOutput, Summary, health_to_string, days_since_date_prefix, score_from_days};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -48,16 +47,10 @@ struct CrateData {
 // ── Health scoring ───────────────────────────────────────────────────
 
 fn get_crate_health(data: &CrateData) -> &'static str {
-    if let Ok(updated) = NaiveDate::parse_from_str(&data.updated_at[..10], "%Y-%m-%d") {
-        let days = (Utc::now().date_naive() - updated).num_days();
-        if days > 730 {
-            return "🪦";
-        }
-        if days > 365 {
-            return "🔴";
-        }
-        if days > 180 {
-            return "⚠️";
+    if let Some(days) = days_since_date_prefix(&data.updated_at) {
+        let health = score_from_days(days);
+        if health != "✅" {
+            return health;
         }
     } else {
         return "❓";
@@ -66,18 +59,8 @@ fn get_crate_health(data: &CrateData) -> &'static str {
     if let Some(ref repo_url) = data.repository {
         if let Some((owner, repo)) = parse_github_repo(repo_url) {
             if let Ok(gh) = fetch_github_info(&owner, &repo) {
-                let pushed = &gh.pushed_at[..10];
-                if let Ok(last) = NaiveDate::parse_from_str(pushed, "%Y-%m-%d") {
-                    let days = (Utc::now().date_naive() - last).num_days();
-                    if days > 730 {
-                        return "🪦";
-                    }
-                    if days > 365 {
-                        return "🔴";
-                    }
-                    if days > 180 {
-                        return "⚠️";
-                    }
+                if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+                    return score_from_days(days);
                 }
             }
         }
@@ -87,8 +70,7 @@ fn get_crate_health(data: &CrateData) -> &'static str {
 }
 
 fn get_crate_stale_reason(data: &CrateData) -> Option<String> {
-    if let Ok(updated) = NaiveDate::parse_from_str(&data.updated_at[..10], "%Y-%m-%d") {
-        let days = (Utc::now().date_naive() - updated).num_days();
+    if let Some(days) = days_since_date_prefix(&data.updated_at) {
         if days > 730 {
             return Some(format!("No release on crates.io in {} days — DEAD", days));
         }
@@ -104,9 +86,7 @@ fn get_crate_stale_reason(data: &CrateData) -> Option<String> {
         if let Some((owner, repo)) = parse_github_repo(repo_url) {
             match fetch_github_info(&owner, &repo) {
                 Ok(gh) => {
-                    let pushed = &gh.pushed_at[..10];
-                    if let Ok(last) = NaiveDate::parse_from_str(pushed, "%Y-%m-%d") {
-                        let days = (Utc::now().date_naive() - last).num_days();
+                    if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
                         if days > 730 {
                             return Some(format!("No GitHub activity in {} days — DEAD", days));
                         }

@@ -1,6 +1,5 @@
 use crate::api::*;
-use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
-use chrono::{Utc, NaiveDate};
+use crate::types::{PackageResult, ScanOutput, Summary, health_to_string, days_since_date_prefix, score_from_days, days_since_unix};
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -13,19 +12,6 @@ const RED:    &str = "\x1b[31m";
 const GRAY:   &str = "\x1b[90m";
 const BOLD:   &str = "\x1b[1m";
 const RESET:  &str = "\x1b[0m";
-
-fn days_since_unix(ts: u64) -> i64 {
-    let then = std::time::UNIX_EPOCH + std::time::Duration::from_secs(ts);
-    let then = chrono::DateTime::<chrono::Utc>::from(then).naive_utc();
-    (Utc::now().naive_utc() - then).num_days()
-}
-
-fn score_from_days(days: i64) -> &'static str {
-    if days > 730 { "🪦" }
-    else if days > 365 { "🔴" }
-    else if days > 180 { "⚠️" }
-    else { "✅" }
-}
 
 /// Detect potential maintainer-takeover / supply-chain attack pattern:
 /// PKGBUILD diupdate recent (< 90 hari), tapi popularity rendah (< 5.0)
@@ -69,9 +55,7 @@ pub fn get_health(pkg: &AurPackage) -> &str {
     if let Some(ref url) = pkg.url {
         if let Some((owner, repo)) = parse_github_repo(url) {
             if let Ok(gh) = fetch_github_info(&owner, &repo) {
-                let pushed = &gh.pushed_at[..10];
-                if let Ok(last) = NaiveDate::parse_from_str(pushed, "%Y-%m-%d") {
-                    let days = (Utc::now().date_naive() - last).num_days();
+                if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
                     return score_from_days(days);
                 }
             }
@@ -121,9 +105,7 @@ fn get_stale_reason(pkg: &AurPackage) -> Option<String> {
         if let Some((owner, repo)) = parse_github_repo(url) {
             match fetch_github_info(&owner, &repo) {
                 Ok(gh) => {
-                    let pushed = &gh.pushed_at[..10];
-                    if let Ok(last) = NaiveDate::parse_from_str(pushed, "%Y-%m-%d") {
-                        let days = (Utc::now().date_naive() - last).num_days();
+                    if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
                         used_github = true;
                         if days > 730 {
                             reasons.push(format!("No GitHub activity in {} days — DEAD", days));
@@ -525,20 +507,17 @@ pub fn print_github_info(repo: &GitHubRepo) {
     println!("   🍴 Forks: {}", repo.forks);
     println!("   🔥 Open issues: {}", repo.open_issues);
     println!("   👀 Watchers: {}", repo.watchers);
-    println!("   📅 Pushed at: {}", &repo.pushed_at[..10]);
+    println!("   📅 Pushed at: {}", repo.pushed_at.get(..10).unwrap_or(&repo.pushed_at));
 
-    let pushed = &repo.pushed_at[..10];
-    let now = Utc::now();
-    if let Ok(last_push) = NaiveDate::parse_from_str(pushed, "%Y-%m-%d") {
-        let days_since = (now.date_naive() - last_push).num_days();
-        if days_since > 730 {
+    if let Some(days) = days_since_date_prefix(&repo.pushed_at) {
+        if days > 730 {
             println!("   {}{}🪦 Last push > 2 years — DEAD{}", BOLD, RED, RESET);
-        } else if days_since > 365 {
+        } else if days > 365 {
             println!("   {}🔴 Last push > 1 year — INACTIVE{}", RED, RESET);
-        } else if days_since > 180 {
+        } else if days > 180 {
             println!("   {}⚠️ Last push > 6 months — check needed{}", YELLOW, RESET);
         } else {
-            println!("   {}✅ Active ({} days ago){}", GREEN, days_since, RESET);
+            println!("   {}✅ Active ({} days ago){}", GREEN, days, RESET);
         }
     }
 

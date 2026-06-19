@@ -1,8 +1,7 @@
 use crate::api::*;
 use crate::display::{health_color, is_stale};
 use crate::osv;
-use crate::types::{PackageResult, ScanOutput, Summary, health_to_string};
-use chrono::{Utc, NaiveDate};
+use crate::types::{PackageResult, ScanOutput, Summary, health_to_string, days_since_date_prefix, score_from_days};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -108,11 +107,9 @@ fn get_pypi_health(info: &PyPIInfo, urls: &[PyPIUrl]) -> &'static str {
     if let Some(url) = urls.first() {
         if let Some(ref upload_time) = url.upload_time {
             let clean = upload_time.trim_end_matches('Z');
-            if let Ok(updated) = NaiveDate::parse_from_str(&clean[..10], "%Y-%m-%d") {
-                let days = (Utc::now().date_naive() - updated).num_days();
-                if days > 730 { return "🪦"; }
-                if days > 365 { return "🔴"; }
-                if days > 180 { return "⚠️"; }
+            if let Some(days) = days_since_date_prefix(clean) {
+                let health = score_from_days(days);
+                if health != "✅" { return health; }
             } else {
                 return "❓";
             }
@@ -125,12 +122,8 @@ fn get_pypi_health(info: &PyPIInfo, urls: &[PyPIUrl]) -> &'static str {
 
     if let Some((owner, repo)) = extract_github_url(info) {
         if let Ok(gh) = fetch_github_info(&owner, &repo) {
-            let pushed = &gh.pushed_at[..10];
-            if let Ok(last) = NaiveDate::parse_from_str(pushed, "%Y-%m-%d") {
-                let days = (Utc::now().date_naive() - last).num_days();
-                if days > 730 { return "🪦"; }
-                if days > 365 { return "🔴"; }
-                if days > 180 { return "⚠️"; }
+            if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+                return score_from_days(days);
             }
         }
     }
@@ -142,8 +135,7 @@ fn get_pypi_stale_reason(info: &PyPIInfo, urls: &[PyPIUrl]) -> Option<String> {
     if let Some(url) = urls.first() {
         if let Some(ref upload_time) = url.upload_time {
             let clean = upload_time.trim_end_matches('Z');
-            if let Ok(updated) = NaiveDate::parse_from_str(&clean[..10], "%Y-%m-%d") {
-                let days = (Utc::now().date_naive() - updated).num_days();
+            if let Some(days) = days_since_date_prefix(clean) {
                 if days > 730 {
                     return Some(format!("No release on PyPI in {} days — DEAD", days));
                 }
@@ -160,9 +152,7 @@ fn get_pypi_stale_reason(info: &PyPIInfo, urls: &[PyPIUrl]) -> Option<String> {
     if let Some((owner, repo)) = extract_github_url(info) {
         match fetch_github_info(&owner, &repo) {
             Ok(gh) => {
-                let pushed = &gh.pushed_at[..10];
-                if let Ok(last) = NaiveDate::parse_from_str(pushed, "%Y-%m-%d") {
-                    let days = (Utc::now().date_naive() - last).num_days();
+                if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
                     if days > 730 {
                         return Some(format!("No GitHub activity in {} days — DEAD", days));
                     }
