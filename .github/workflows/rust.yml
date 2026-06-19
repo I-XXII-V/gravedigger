@@ -3,6 +3,7 @@ name: Rust
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
 
@@ -21,3 +22,15 @@ jobs:
       run: cargo test --verbose
     - name: Clippy
       run: cargo clippy -- -D warnings
+
+    - name: Build release binary
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: cargo build --release --verbose
+
+    - name: Upload release asset
+      if: startsWith(github.ref, 'refs/tags/v')
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        cp target/release/watchtower watchtower-linux-amd64
+        gh release upload "${{ github.ref_name }}" watchtower-linux-amd64 --clobber
