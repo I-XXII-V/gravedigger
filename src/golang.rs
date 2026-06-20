@@ -166,12 +166,13 @@ fn fetch_go_proxy(mod_path: &str) -> Result<GoProxyResponse, String> {
 // ── Public entry point ───────────────────────────────────────────────
 
 pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool) {
-    if licenses && !output_json {
-        eprintln!("⚠️  --licenses is not supported for Go modules (go.mod has no license metadata)");
-    }
     if fs::metadata("go.mod").is_err() {
         eprintln!("❌ go.mod not found in current directory");
         return;
+    }
+
+    if licenses && !output_json {
+        eprintln!("⚠️  --licenses is not supported for Go modules (go.mod has no license metadata)");
     }
 
     let deps = match parse_go_mod("go.mod") {
