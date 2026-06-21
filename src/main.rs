@@ -14,8 +14,8 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
-    name = "watchtower",
-    about = "Watchtower — check the health of your dependencies across AUR, Cargo, npm, PyPI, and Go",
+    name = "vigil",
+    about = "Check the health of your dependencies across AUR, Cargo, npm, PyPI, and Go",
     long_about = "\
      ┌───┐
      │ W │
@@ -28,7 +28,7 @@ use clap::{Parser, Subcommand};
    │       │
   ┌┘       └┐
 
-Watchtower — scan your project's dependencies and see which ones are
+Vigil — scan your project's dependencies and see which ones are
 healthy, stale, inactive, or completely dead.
 
 Works with: AUR, Cargo.lock, package-lock.json, poetry.lock /

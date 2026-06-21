@@ -80,7 +80,7 @@ pub fn query_package(ecosystem: &str, name: &str, version: &str) -> Vec<VulnInfo
 
     let resp = match http_client()
         .post(url)
-        .header("User-Agent", "watchtower")
+        .header("User-Agent", "vigil")
         .json(&body)
         .send()
     {

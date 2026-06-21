@@ -1,5 +1,5 @@
 [package]
-name = "watchtower"
+name = "vigil"
 version = "0.2.4"
 edition = "2021"
 

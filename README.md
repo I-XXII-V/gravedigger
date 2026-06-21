@@ -1,46 +1,41 @@
-# Watchtower
+# Vigil
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/I-XXII-V/Watchtower/rust.yml?branch=main)](https://github.com/I-XXII-V/Watchtower/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/I-XXII-V/Vigil/rust.yml?branch=main)](https://github.com/I-XXII-V/Vigil/actions)
 
-Check if your dependencies are still alive, or if yet another open-source maintainer has burnt out and left you holding the bag. Also finds CVEs — because apparently nobody reads advisory databases until they're in a breach postmortem.
 
 ```bash
 # scan AUR packages (default)
-watchtower
+vigil
 
 # scan Rust project
-watchtower --cargo
+vigil --cargo
 
 # who depends on serde?
-watchtower who-depends serde
+vigil who-depends serde
 
 # JSON for jq
-watchtower --cargo --json | jq '.packages[] | select(.health == "dead")'
+vigil --cargo --json | jq '.packages[] | select(.health == "dead")'
 
 # CI mode — exit 1 if anything is dead or has CVEs
-watchtower --npm --ci
+vigil --npm --ci
 ```
 
 ## Install
 
-**Binary (you don't have a choice):**
+**Binary:**
 ```bash
-curl -L https://github.com/I-XXII-V/Watchtower/releases/latest/download/watchtower -o watchtower
-chmod +x watchtower && sudo mv watchtower /usr/local/bin/
+cargo install --git https://github.com/I-XXII-V/Vigil
 ```
 
-**From source:**
-```bash
-cargo install --git https://github.com/I-XXII-V/Watchtower
-```
+
 
 AUR scanning needs `pacman -Qm`, so it's Arch-only. The rest (Cargo, npm, PyPI, Go) work on any Linux distro where you've inevitably accumulated dependencies you don't remember adding.
 
 ## Usage
 
 ```text
-watchtower [OPTIONS] [PACKAGE] [COMMAND]
+vigil [OPTIONS] [PACKAGE] [COMMAND]
 
 Commands:
   who-depends  Show crates that depend on a given crate
@@ -66,19 +61,19 @@ Options:
 
 ```bash
 # question your life choices
-watchtower --cargo
-watchtower --npm
-watchtower --pypi
-watchtower --go
+vigil --cargo
+vigil --npm
+vigil --pypi
+vigil --go
 
 # ignore the healthy ones, focus on the dumpster fire
-watchtower --cargo --stale
+vigil --cargo --stale
 
 # make CI fail because someone didn't update their crate since 2021
-watchtower --go --ci
+vigil --go --ci
 
 # see what licenses you're violating
-watchtower --npm --licenses
+vigil --npm --licenses
 ```
 
 With `--stale`, each package explains why it's rotting:
@@ -99,18 +94,18 @@ AUR packages get multiple reasons when needed — including the LastModified fal
 With `--json`, you can pipe it somewhere that makes you look productive:
 
 ```bash
-watchtower --cargo --json | jq '.summary'
-watchtower --cargo --json | jq '.packages[] | select(.health == "dead") | .name'
-watchtower --cargo --stale --json | jq '.packages[].stale_reason'
-watchtower --json | jq '.summary.hijack'          # AUR: hijack count
+vigil --cargo --json | jq '.summary'
+vigil --cargo --json | jq '.packages[] | select(.health == "dead") | .name'
+vigil --cargo --stale --json | jq '.packages[].stale_reason'
+vigil --json | jq '.summary.hijack'          # AUR: hijack count
 ```
 
 ### Single package info
 
 ```bash
-watchtower yay
-watchtower neovim
-watchtower --aur rust-analyzer
+vigil yay
+vigil neovim
+vigil --aur rust-analyzer
 ```
 
 Shows AUR metadata plus GitHub stars, forks, last commit, and archive status. Basically a digital obituary.
@@ -118,15 +113,15 @@ Shows AUR metadata plus GitHub stars, forks, last commit, and archive status. Ba
 ### Reverse dependencies
 
 ```bash
-watchtower who-depends serde
-watchtower wd tokio
+vigil who-depends serde
+vigil wd tokio
 ```
 
 See who else is living dangerously by depending on the same things you do.
 
 ## CVE scanning
 
-Watchtower checks CVEs via [OSV.dev](https://osv.dev) for each dependency. Supported for Cargo, npm, PyPI, and Go. AUR is skipped — OSV doesn't support it.
+Vigil checks CVEs via [OSV.dev](https://osv.dev) for each dependency. Supported for Cargo, npm, PyPI, and Go. AUR is skipped — OSV doesn't support it.
 
 If there's a CVE, you'll see it:
 
@@ -136,7 +131,7 @@ If there's a CVE, you'll see it:
 
 Use `--ci` to exit with code 1 when CVEs are found. Because deploying known vulnerabilities to production is a bold strategy, Cotton. Let's see if it pays off for 'em.
 
-Results are cached in `~/.cache/watchtower/`. Second scan is faster. First scan is still faster than reading the actual CVE descriptions.
+Results are cached in `~/.cache/vigil/`. Second scan is faster. First scan is still faster than reading the actual CVE descriptions.
 
 ## Health scoring
 
@@ -153,7 +148,7 @@ For AUR packages:
 
 This means even without a `GITHUB_TOKEN`, all your AUR packages get scored from the PKGBUILD modification date instead of showing ❓.
 
-Additional AUR signal: if a PKGBUILD was updated recently (< 90 days) but the package is orphaned with low popularity, Watchtower flags a potential **maintainer takeover / supply-chain hijack** risk (🚩). These show up separately in the summary so they don't get lost in the warning count:
+Additional AUR signal: if a PKGBUILD was updated recently (< 90 days) but the package is orphaned with low popularity, Vigil flags a potential **maintainer takeover / supply-chain hijack** risk (🚩). These show up separately in the summary so they don't get lost in the warning count:
 
 ```
 📊 Summary: ✅ 12  ⚠️ 5  🚩 2  🔴 1  🪦 0  ❓ 39

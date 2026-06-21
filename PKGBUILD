@@ -1,12 +1,12 @@
-# Maintainer: Watchtower <https://github.com/I-XXII-V/Watchtower>
+# Maintainer: Vigil <https://github.com/I-XXII-V/Watchtower>
 # Contributor: I-XXII-V
 
-pkgname=watchtower
+pkgname=vigil
 pkgver=0.2.3
 pkgrel=1
 pkgdesc="CLI tool to check the health of your dependencies across AUR, Cargo, npm, PyPI, and Go"
 arch=('x86_64')
-url="https://github.com/I-XXII-V/Watchtower"
+url="https://github.com/I-XXII-V/Vigil"
 license=('MIT')
 makedepends=('cargo')
 source=("$url/archive/v$pkgver.tar.gz")
@@ -19,7 +19,7 @@ build() {
 
 package() {
     cd "$srcdir/$pkgname-$pkgver"
-    install -Dm755 target/release/watchtower "$pkgdir/usr/bin/watchtower"
+    install -Dm755 target/release/vigil "$pkgdir/usr/bin/vigil"
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
