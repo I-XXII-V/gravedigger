@@ -363,7 +363,7 @@ fn run_diff_pypi(old_ref: &str) {
 
 // ── Public entry point ───────────────────────────────────────────────
 
-/// Run `vigil diff` — compare dependencies at an old Git ref with the
+/// Run `blight diff` — compare dependencies at an old Git ref with the
 /// current state and show health information for changed packages.
 ///
 /// If `ecosystem` is `None`, the ecosystem is auto-detected from lockfiles

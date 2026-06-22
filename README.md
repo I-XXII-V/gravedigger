@@ -1,31 +1,31 @@
-# Vigil
+# Blight
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/I-XXII-V/Vigil/rust.yml?branch=main)](https://github.com/I-XXII-V/Vigil/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/I-XXII-V/Blight/rust.yml?branch=main)](https://github.com/I-XXII-V/Blight/actions)
 
 
 ```bash
 # scan AUR packages (default)
-vigil
+blight
 
 # scan Rust project
-vigil --cargo
+blight --cargo
 
 # who depends on serde?
-vigil who-depends serde
+blight who-depends serde
 
 # JSON for jq
-vigil --cargo --json | jq '.packages[] | select(.health == "dead")'
+blight --cargo --json | jq '.packages[] | select(.health == "dead")'
 
 # CI mode — exit 1 if anything is dead or has CVEs
-vigil --npm --ci
+blight --npm --ci
 ```
 
 ## Install
 
 **Binary:**
 ```bash
-cargo install --git https://github.com/I-XXII-V/Vigil
+cargo install --git https://github.com/I-XXII-V/Blight
 ```
 
 
@@ -35,7 +35,7 @@ AUR scanning needs `pacman -Qm`, so it's Arch-only. The rest (Cargo, npm, PyPI, 
 ## Usage
 
 ```text
-vigil [OPTIONS] [PACKAGE] [COMMAND]
+blight [OPTIONS] [PACKAGE] [COMMAND]
 
 Commands:
   who-depends  Show crates that depend on a given crate
@@ -61,19 +61,19 @@ Options:
 
 ```bash
 # question your life choices
-vigil --cargo
-vigil --npm
-vigil --pypi
-vigil --go
+blight --cargo
+blight --npm
+blight --pypi
+blight --go
 
 # ignore the healthy ones, focus on the dumpster fire
-vigil --cargo --stale
+blight --cargo --stale
 
 # make CI fail because someone didn't update their crate since 2021
-vigil --go --ci
+blight --go --ci
 
 # see what licenses you're violating
-vigil --npm --licenses
+blight --npm --licenses
 ```
 
 With `--stale`, each package explains why it's rotting:
@@ -94,18 +94,18 @@ AUR packages get multiple reasons when needed — including the LastModified fal
 With `--json`, you can pipe it somewhere that makes you look productive:
 
 ```bash
-vigil --cargo --json | jq '.summary'
-vigil --cargo --json | jq '.packages[] | select(.health == "dead") | .name'
-vigil --cargo --stale --json | jq '.packages[].stale_reason'
-vigil --json | jq '.summary.hijack'          # AUR: hijack count
+blight --cargo --json | jq '.summary'
+blight --cargo --json | jq '.packages[] | select(.health == "dead") | .name'
+blight --cargo --stale --json | jq '.packages[].stale_reason'
+blight --json | jq '.summary.hijack'          # AUR: hijack count
 ```
 
 ### Single package info
 
 ```bash
-vigil yay
-vigil neovim
-vigil --aur rust-analyzer
+blight yay
+blight neovim
+blight --aur rust-analyzer
 ```
 
 Shows AUR metadata plus GitHub stars, forks, last commit, and archive status. Basically a digital obituary.
@@ -113,15 +113,15 @@ Shows AUR metadata plus GitHub stars, forks, last commit, and archive status. Ba
 ### Reverse dependencies
 
 ```bash
-vigil who-depends serde
-vigil wd tokio
+blight who-depends serde
+blight wd tokio
 ```
 
 See who else is living dangerously by depending on the same things you do.
 
 ## CVE scanning
 
-Vigil checks CVEs via [OSV.dev](https://osv.dev) for each dependency. Supported for Cargo, npm, PyPI, and Go. AUR is skipped — OSV doesn't support it.
+Blight checks CVEs via [OSV.dev](https://osv.dev) for each dependency. Supported for Cargo, npm, PyPI, and Go. AUR is skipped — OSV doesn't support it.
 
 If there's a CVE, you'll see it:
 
@@ -131,7 +131,7 @@ If there's a CVE, you'll see it:
 
 Use `--ci` to exit with code 1 when CVEs are found. Because deploying known vulnerabilities to production is a bold strategy, Cotton. Let's see if it pays off for 'em.
 
-Results are cached in `~/.cache/vigil/`. Second scan is faster. First scan is still faster than reading the actual CVE descriptions.
+Results are cached in `~/.cache/blight/`. Second scan is faster. First scan is still faster than reading the actual CVE descriptions.
 
 ## Health scoring
 
@@ -148,7 +148,7 @@ For AUR packages:
 
 This means even without a `GITHUB_TOKEN`, all your AUR packages get scored from the PKGBUILD modification date instead of showing ❓.
 
-Additional AUR signal: if a PKGBUILD was updated recently (< 90 days) but the package is orphaned with low popularity, Vigil flags a potential **maintainer takeover / supply-chain hijack** risk (🚩). These show up separately in the summary so they don't get lost in the warning count:
+Additional AUR signal: if a PKGBUILD was updated recently (< 90 days) but the package is orphaned with low popularity, Blight flags a potential **maintainer takeover / supply-chain hijack** risk (🚩). These show up separately in the summary so they don't get lost in the warning count:
 
 ```
 📊 Summary: ✅ 12  ⚠️ 5  🚩 2  🔴 1  🪦 0  ❓ 39

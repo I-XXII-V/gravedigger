@@ -1,12 +1,12 @@
-# Maintainer: Vigil <https://github.com/I-XXII-V/Watchtower>
+# Maintainer: Blight <https://github.com/I-XXII-V/Blight>
 # Contributor: I-XXII-V
 
-pkgname=vigil
+pkgname=blight
 pkgver=0.2.3
 pkgrel=1
 pkgdesc="CLI tool to check the health of your dependencies across AUR, Cargo, npm, PyPI, and Go"
 arch=('x86_64')
-url="https://github.com/I-XXII-V/Vigil"
+url="https://github.com/I-XXII-V/Blight"
 license=('MIT')
 makedepends=('cargo')
 source=("$url/archive/v$pkgver.tar.gz")
@@ -19,7 +19,7 @@ build() {
 
 package() {
     cd "$srcdir/$pkgname-$pkgver"
-    install -Dm755 target/release/vigil "$pkgdir/usr/bin/vigil"
+    install -Dm755 target/release/blight "$pkgdir/usr/bin/blight"
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

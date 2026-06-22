@@ -128,7 +128,7 @@ fn fetch_crate_info(name: &str) -> Result<CrateResponse, String> {
     let url = format!("https://crates.io/api/v1/crates/{}", name);
     let resp = http_client()
         .get(&url)
-        .header("User-Agent", "vigil")
+        .header("User-Agent", "blight")
         .send()
         .map_err(|e| format!("Network error: {}", e))?;
 

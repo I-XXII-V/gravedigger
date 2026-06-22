@@ -15,7 +15,7 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
-    name = "vigil",
+    name = "blight",
     about = "Check the health of your dependencies across AUR, Cargo, npm, PyPI, and Go",
     long_about = "\
      ┌───┐
@@ -29,7 +29,7 @@ use clap::{Parser, Subcommand};
    │       │
   ┌┘       └┐
 
-Vigil — scan your project's dependencies and see which ones are
+Blight — scan your project's dependencies and see which ones are
 healthy, stale, inactive, or completely dead.
 
 Works with: AUR, Cargo.lock, package-lock.json, poetry.lock /
