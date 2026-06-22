@@ -168,6 +168,17 @@ fn extract_npm_deps(lock: &NpmLock) -> Vec<(String, String)> {
     deps
 }
 
+// ── Public parser ────────────────────────────────────────────────────
+
+/// Parse a `package-lock.json` content string and return all dependencies
+/// as `(name, version)` pairs. Supports both v3 (`packages`) and v1
+/// (`dependencies`) lock file formats.
+pub fn parse_npm_lock(content: &str) -> Result<Vec<(String, String)>, String> {
+    let lock: NpmLock = serde_json::from_str(content)
+        .map_err(|e| format!("Failed to parse package-lock.json: {}", e))?;
+    Ok(extract_npm_deps(&lock))
+}
+
 // ── Health scoring ───────────────────────────────────────────────────
 
 /// Compute npm package health.
@@ -382,6 +393,49 @@ fn fetch_npm_attestation(name: &str, version: &str) -> String {
     let msg = "Provenance: not available".to_string();
     cache.set("npm", &cache_key, &msg);
     msg
+}
+
+/// Scan a single npm package and return its health result directly.
+/// Combines fetch + health scoring + OSV query + provenance in one call.
+pub(crate) fn scan_single(name: &str, version: &str) -> PackageResult {
+    match fetch_npm_info(name) {
+        Ok(reg) => {
+            let gh_info: Option<GitHubRepo> = reg
+                .repository
+                .as_ref()
+                .and_then(|r| r.url.as_deref())
+                .and_then(|url| {
+                    let (owner, repo) = parse_github_repo(url)?;
+                    fetch_github_info(&owner, &repo).ok()
+                });
+
+            let health = get_npm_health(&reg, gh_info.as_ref());
+            let stale_reason = get_npm_stale_reason(&reg, gh_info.as_ref());
+            let vulns = osv::query_package("npm", name, version);
+            let provenance = fetch_npm_attestation(name, version);
+
+            PackageResult {
+                name: name.to_string(),
+                version: version.to_string(),
+                health: health_to_string(health),
+                description: reg.description.clone(),
+                latest_version: reg.dist_tags.get("latest").cloned(),
+                stale_reason,
+                vulns,
+                provenance: Some(provenance),
+            }
+        }
+        Err(e) => PackageResult {
+            name: name.to_string(),
+            version: version.to_string(),
+            health: "unknown".to_string(),
+            description: None,
+            latest_version: None,
+            stale_reason: Some(e),
+            vulns: vec![],
+            provenance: None,
+        },
+    }
 }
 
 // ── Public entry point ───────────────────────────────────────────────

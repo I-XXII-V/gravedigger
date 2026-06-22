@@ -78,9 +78,9 @@ fn extract_github_url(info: &PyPIInfo) -> Option<(String, String)> {
     None
 }
 
-fn parse_poetry_lock(path: &str) -> Result<Vec<(String, String)>, String> {
-    let content = fs::read_to_string(path).map_err(|e| format!("Read error: {}", e))?;
-    let lock: PoetryLock = toml::from_str(&content).map_err(|e| format!("Parse error: {}", e))?;
+/// Parse a `poetry.lock` content string and return dependencies as `(name, version)` pairs.
+pub fn parse_poetry_lock_content(content: &str) -> Result<Vec<(String, String)>, String> {
+    let lock: PoetryLock = toml::from_str(content).map_err(|e| format!("Parse error: {}", e))?;
     Ok(lock
         .package
         .unwrap_or_default()
@@ -89,10 +89,10 @@ fn parse_poetry_lock(path: &str) -> Result<Vec<(String, String)>, String> {
         .collect())
 }
 
-fn parse_pipfile_lock(path: &str) -> Result<Vec<(String, String)>, String> {
-    let content = fs::read_to_string(path).map_err(|e| format!("Read error: {}", e))?;
+/// Parse a `Pipfile.lock` content string and return dependencies as `(name, version)` pairs.
+pub fn parse_pipfile_lock_content(content: &str) -> Result<Vec<(String, String)>, String> {
     let lock: PipfileLock =
-        serde_json::from_str(&content).map_err(|e| format!("Parse error: {}", e))?;
+        serde_json::from_str(content).map_err(|e| format!("Parse error: {}", e))?;
 
     let mut deps = Vec::new();
     if let Some(default) = lock.default {
@@ -108,6 +108,16 @@ fn parse_pipfile_lock(path: &str) -> Result<Vec<(String, String)>, String> {
         }
     }
     Ok(deps)
+}
+
+fn parse_poetry_lock(path: &str) -> Result<Vec<(String, String)>, String> {
+    let content = fs::read_to_string(path).map_err(|e| format!("Read error: {}", e))?;
+    parse_poetry_lock_content(&content)
+}
+
+fn parse_pipfile_lock(path: &str) -> Result<Vec<(String, String)>, String> {
+    let content = fs::read_to_string(path).map_err(|e| format!("Read error: {}", e))?;
+    parse_pipfile_lock_content(&content)
 }
 
 // ── Health scoring ───────────────────────────────────────────────────
@@ -206,6 +216,42 @@ fn fetch_pypi_info(name: &str) -> Result<PyPIResponse, String> {
     }
 
     serde_json::from_str(&text).map_err(|e| format!("JSON error: {}", e))
+}
+
+/// Scan a single PyPI package and return its health result directly.
+/// Combines fetch + health scoring + OSV query in one call.
+pub(crate) fn scan_single(name: &str, version: &str) -> PackageResult {
+    match fetch_pypi_info(name) {
+        Ok(resp) => {
+            let gh_info: Option<GitHubRepo> = extract_github_url(&resp.info)
+                .and_then(|(owner, repo)| fetch_github_info(&owner, &repo).ok());
+
+            let health = get_pypi_health(&resp.info, &resp.urls, gh_info.as_ref());
+            let stale_reason = get_pypi_stale_reason(&resp.info, &resp.urls, gh_info.as_ref());
+            let vulns = osv::query_package("PyPI", name, version);
+
+            PackageResult {
+                name: name.to_string(),
+                version: version.to_string(),
+                health: health_to_string(health),
+                description: resp.info.summary.clone(),
+                latest_version: Some(resp.info.version.clone()),
+                stale_reason,
+                vulns,
+                provenance: None,
+            }
+        }
+        Err(e) => PackageResult {
+            name: name.to_string(),
+            version: version.to_string(),
+            health: "unknown".to_string(),
+            description: None,
+            latest_version: None,
+            stale_reason: Some(e),
+            vulns: vec![],
+            provenance: None,
+        },
+    }
 }
 
 // ── Public entry point ───────────────────────────────────────────────

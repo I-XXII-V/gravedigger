@@ -28,7 +28,7 @@ fn parse_go_mod(path: &str) -> Result<Vec<(String, String)>, String> {
     parse_go_mod_lines(&content)
 }
 
-fn parse_go_mod_lines(content: &str) -> Result<Vec<(String, String)>, String> {
+pub(crate) fn parse_go_mod_lines(content: &str) -> Result<Vec<(String, String)>, String> {
     let mut deps = Vec::new();
     let mut in_block = false;
 
@@ -141,6 +141,12 @@ fn get_go_stale_reason(proxy: &GoProxyResponse, gh: Option<&GitHubRepo>) -> Opti
     None
 }
 
+/// Parse a `go.mod` content string and return dependencies as `(name, version)` pairs.
+/// Delegates to `parse_go_mod_lines` for the actual parsing.
+pub fn parse_go_mod_content(content: &str) -> Result<Vec<(String, String)>, String> {
+    parse_go_mod_lines(content)
+}
+
 // ── Go proxy API ─────────────────────────────────────────────────────
 
 fn fetch_go_proxy(mod_path: &str) -> Result<GoProxyResponse, String> {
@@ -161,6 +167,52 @@ fn fetch_go_proxy(mod_path: &str) -> Result<GoProxyResponse, String> {
     }
 
     serde_json::from_str(&text).map_err(|e| format!("JSON error: {}", e))
+}
+
+/// Scan a single Go module and return its health result directly.
+/// Combines fetch + health scoring + hijack check + OSV query in one call.
+pub(crate) fn scan_single(name: &str, version: &str) -> PackageResult {
+    match fetch_go_proxy(name) {
+        Ok(proxy) => {
+            let gh_result: Option<Result<GitHubRepo, String>> = go_mod_to_github(name)
+                .map(|(owner, repo)| fetch_github_info(&owner, &repo));
+
+            let gh_ref = gh_result.as_ref().and_then(|r| r.as_ref().ok());
+
+            let proxy_health = get_go_health(&proxy);
+
+            let hijack = get_go_hijack(name, gh_result.as_ref().map(|r| {
+                r.as_ref().map_err(|e| e.as_str())
+            }));
+            let health = if hijack.is_some() { "🚩" } else { proxy_health };
+
+            let stale_reason = get_go_stale_reason(&proxy, gh_ref);
+            let final_reason = hijack.clone().or(stale_reason);
+
+            let vulns = osv::query_package("Go", name, version);
+
+            PackageResult {
+                name: name.to_string(),
+                version: version.to_string(),
+                health: health_to_string(health),
+                description: None,
+                latest_version: Some(proxy.Version.trim_start_matches('v').to_string()),
+                stale_reason: final_reason,
+                vulns,
+                provenance: None,
+            }
+        }
+        Err(e) => PackageResult {
+            name: name.to_string(),
+            version: version.to_string(),
+            health: "unknown".to_string(),
+            description: None,
+            latest_version: None,
+            stale_reason: Some(e),
+            vulns: vec![],
+            provenance: None,
+        },
+    }
 }
 
 // ── Public entry point ───────────────────────────────────────────────

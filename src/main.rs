@@ -1,6 +1,7 @@
 mod api;
 mod cache;
 mod cargo;
+mod diff;
 mod display;
 mod downstream;
 mod golang;
@@ -84,6 +85,29 @@ enum Commands {
     /// Show crates that depend on a given crate
     #[command(name = "who-depends", aliases = &["wd"])]
     WhoDepends { crate_name: String },
+
+    /// Show dependency changes between git revisions with health info
+    #[command(name = "diff")]
+    Diff {
+        /// Old git ref to compare against (default: HEAD~1)
+        old_ref: Option<String>,
+
+        /// Scan Cargo.lock
+        #[arg(long = "cargo")]
+        cargo: bool,
+
+        /// Scan package-lock.json
+        #[arg(long = "npm")]
+        npm: bool,
+
+        /// Scan Python lockfile (poetry.lock / Pipfile.lock)
+        #[arg(long = "pypi")]
+        pypi: bool,
+
+        /// Scan Go modules (go.mod)
+        #[arg(long = "go")]
+        go: bool,
+    },
 }
 
 fn main() {
@@ -94,6 +118,27 @@ fn main() {
         match cmd {
             Commands::WhoDepends { crate_name } => {
                 downstream::who_depends_crates(&crate_name);
+            }
+            Commands::Diff {
+                old_ref,
+                cargo,
+                npm,
+                pypi,
+                go,
+            } => {
+                let ref_str = old_ref.unwrap_or_else(|| "HEAD~1".to_string());
+                let ecosystem: Option<&str> = if cargo {
+                    Some("cargo")
+                } else if npm {
+                    Some("npm")
+                } else if pypi {
+                    Some("pypi")
+                } else if go {
+                    Some("go")
+                } else {
+                    None
+                };
+                diff::run_diff(&ref_str, ecosystem);
             }
         }
         return;
