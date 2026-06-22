@@ -75,7 +75,7 @@ pub struct VulnInfo {
     pub aliases: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct PackageResult {
     pub name: String,
     pub version: String,

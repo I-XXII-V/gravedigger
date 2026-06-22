@@ -143,6 +143,68 @@ fn fetch_crate_info(name: &str) -> Result<CrateResponse, String> {
         .map_err(|e| format!("JSON error: {} — body: {}", e, safe_prefix(&text, 200)))
 }
 
+// ── Public parser ────────────────────────────────────────────────────
+
+/// Parse a Cargo.lock content string and return registry dependencies
+/// as `(name, version)` pairs. Non-registry sources (git, path) are skipped.
+pub fn parse_cargo_lock(content: &str) -> Result<Vec<(String, String)>, String> {
+    let lock: CargoLock = toml::from_str(content)
+        .map_err(|e| format!("Failed to parse Cargo.lock: {}", e))?;
+    Ok(lock
+        .package
+        .into_iter()
+        .filter(|p| {
+            p.source
+                .as_deref()
+                .is_some_and(|s| s.starts_with("registry+"))
+        })
+        .map(|p| (p.name, p.version))
+        .collect())
+}
+
+/// Scan a single crate dependency and return its health result directly.
+/// Combines fetch + health scoring + OSV query in one call.
+pub(crate) fn scan_single(name: &str, version: &str) -> PackageResult {
+    match fetch_crate_info(name) {
+        Ok(crate_resp) => {
+            let data = &crate_resp.crate_data;
+
+            let gh_info: Option<GitHubRepo> = data
+                .repository
+                .as_deref()
+                .and_then(|url| {
+                    let (owner, repo) = parse_github_repo(url)?;
+                    fetch_github_info(&owner, &repo).ok()
+                });
+
+            let health = get_crate_health(data, gh_info.as_ref());
+            let stale_reason = get_crate_stale_reason(data, gh_info.as_ref());
+            let vulns = osv::query_package("crates.io", name, version);
+
+            PackageResult {
+                name: name.to_string(),
+                version: version.to_string(),
+                health: health_to_string(health),
+                description: data.description.clone(),
+                latest_version: Some(data.max_stable_version.clone()),
+                stale_reason,
+                vulns,
+                provenance: None,
+            }
+        }
+        Err(e) => PackageResult {
+            name: name.to_string(),
+            version: version.to_string(),
+            health: "unknown".to_string(),
+            description: None,
+            latest_version: None,
+            stale_reason: Some(e),
+            vulns: vec![],
+            provenance: None,
+        },
+    }
+}
+
 // ── Public entry point ───────────────────────────────────────────────
 
 pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool) {
@@ -161,23 +223,13 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
         }
     };
 
-    let lock: CargoLock = match toml::from_str(&content) {
-        Ok(l) => l,
+    let registry_deps = match parse_cargo_lock(&content) {
+        Ok(d) => d,
         Err(e) => {
-            eprintln!("❌ Failed to parse Cargo.lock: {}", e);
+            eprintln!("❌ {}", e);
             return;
         }
     };
-
-    let registry_deps: Vec<&LockPackage> = lock
-        .package
-        .iter()
-        .filter(|p| {
-            p.source
-                .as_deref()
-                .is_some_and(|s| s.starts_with("registry+"))
-        })
-        .collect();
 
     if registry_deps.is_empty() {
         if output_json {
@@ -211,9 +263,9 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
     let licenses_map: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
 
     thread::scope(|s| {
-        for pkg in &registry_deps {
-            let name = pkg.name.clone();
-            let version = pkg.version.clone();
+        for (pkg_name, pkg_version) in &registry_deps {
+            let name = pkg_name.clone();
+            let version = pkg_version.clone();
             let results = Arc::clone(&results);
             let licenses_map = Arc::clone(&licenses_map);
             s.spawn(move || {
