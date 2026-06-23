@@ -266,7 +266,7 @@ fn fetch_npm_info(name: &str) -> Result<NpmRegistryResponse, String> {
 
     let resp = http_client()
         .get(&url)
-        .header("User-Agent", "rot")
+        .header("User-Agent", "ossuary")
         .send()
         .map_err(|e| format!("Network error: {}", e))?;
 
@@ -301,7 +301,7 @@ fn fetch_npm_attestation(name: &str, version: &str) -> String {
 
     let resp = match http_client()
         .get(&url)
-        .header("User-Agent", "rot")
+        .header("User-Agent", "ossuary")
         .send()
     {
         Ok(r) => r,

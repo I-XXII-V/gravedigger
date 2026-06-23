@@ -790,6 +790,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ossuary"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "chrono",
+ "clap",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -894,20 +908,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rot"
-version = "0.1.0"
-dependencies = [
- "base64",
- "chrono",
- "clap",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "toml",
 ]
 
 [[package]]

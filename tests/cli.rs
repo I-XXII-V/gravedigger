@@ -1,17 +1,17 @@
 use std::process::Command;
 
-const BINARY: &str = env!("CARGO_BIN_EXE_rot");
+const BINARY: &str = env!("CARGO_BIN_EXE_ossuary");
 
 #[test]
 fn test_help_success() {
     let output = Command::new(BINARY)
         .arg("--help")
         .output()
-        .expect("Failed to run rot --help");
+        .expect("Failed to run ossuary --help");
     assert!(output.status.success());
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("rot"));
+    assert!(stdout.contains("ossuary"));
     assert!(stdout.contains("--cargo"));
     assert!(stdout.contains("--npm"));
     assert!(stdout.contains("--json"));
@@ -22,10 +22,10 @@ fn test_help_short() {
     let output = Command::new(BINARY)
         .arg("-h")
         .output()
-        .expect("Failed to run rot -h");
+        .expect("Failed to run ossuary -h");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("rot"));
+    assert!(stdout.contains("ossuary"));
 }
 
 #[test]
@@ -35,7 +35,7 @@ fn test_cargo_no_lockfile() {
         .args(["--cargo"])
         .current_dir(tmp.path())
         .output()
-        .expect("Failed to run rot --cargo in empty dir");
+        .expect("Failed to run ossuary --cargo in empty dir");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Cargo.lock not found"));
@@ -46,7 +46,7 @@ fn test_who_depends_serde() {
     let output = Command::new(BINARY)
         .args(["who-depends", "serde"])
         .output()
-        .expect("Failed to run rot who-depends serde");
+        .expect("Failed to run ossuary who-depends serde");
     assert!(output.status.success());
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -63,7 +63,7 @@ fn test_who_depends_short() {
     let output = Command::new(BINARY)
         .args(["wd", "serde"])
         .output()
-        .expect("Failed to run rot wd serde");
+        .expect("Failed to run ossuary wd serde");
     assert!(output.status.success());
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -76,10 +76,10 @@ fn test_json_flag_help_still_text() {
     let output = Command::new(BINARY)
         .args(["--help", "--json"])
         .output()
-        .expect("Failed to run rot --help --json");
+        .expect("Failed to run ossuary --help --json");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("rot"));
+    assert!(stdout.contains("ossuary"));
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn test_invalid_package_not_found() {
     let output = Command::new(BINARY)
         .arg("this-package-definitely-does-not-exist-12345")
         .output()
-        .expect("Failed to run rot with invalid package");
+        .expect("Failed to run ossuary with invalid package");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("not found"), "Stderr: {}", stderr);

@@ -1,10 +1,10 @@
 [package]
-name = "rot"
+name = "ossuary"
 version = "0.1.0"
 edition = "2021"
 description = "Dependency health scanner for AUR, Cargo, npm, PyPI, and Go — checks CVEs, stale dates, and hijack risk"
 license = "MIT"
-repository = "https://github.com/I-XXII-V/rot"
+repository = "https://github.com/I-XXII-V/ossuary"
 readme = "README.md"
 keywords = ["dependencies", "security", "aur", "cargo", "supply-chain"]
 categories = ["command-line-utilities", "development-tools"]
