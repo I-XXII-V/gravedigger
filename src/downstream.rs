@@ -46,7 +46,7 @@ fn fetch_crate_rev_deps(name: &str) -> Result<CrateRevDeps, String> {
 
     let resp = http_client()
         .get(&url)
-        .header("User-Agent", "blight")
+        .header("User-Agent", "rot")
         .send()
         .map_err(|e| format!("Network error: {}", e))?;
 

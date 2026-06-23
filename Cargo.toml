@@ -1,7 +1,13 @@
 [package]
-name = "blight"
-version = "0.2.4"
+name = "rot"
+version = "0.1.0"
 edition = "2021"
+description = "Dependency health scanner for AUR, Cargo, npm, PyPI, and Go — checks CVEs, stale dates, and hijack risk"
+license = "MIT"
+repository = "https://github.com/I-XXII-V/rot"
+readme = "README.md"
+keywords = ["dependencies", "security", "aur", "cargo", "supply-chain"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json", "blocking"] }

@@ -1,37 +1,37 @@
-# Blight
+# Rot
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/I-XXII-V/Blight/rust.yml?branch=main)](https://github.com/I-XXII-V/Blight/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/I-XXII-V/Rot/rust.yml?branch=main)](https://github.com/I-XXII-V/Rot/actions)
 
 
 ```bash
 # scan AUR packages (default)
-blight
+rot
 
 # scan Rust project
-blight --cargo
+rot --cargo
 
 # who depends on serde?
-blight who-depends serde
+rot who-depends serde
 
 # what changed since last commit?
-blight diff
+rot diff
 
 # compare against a specific ref
-blight diff v1.0
+rot diff v1.0
 
 # JSON for jq
-blight --cargo --json | jq '.packages[] | select(.health == "dead")'
+rot --cargo --json | jq '.packages[] | select(.health == "dead")'
 
 # CI mode — exit 1 if anything is dead or has CVEs
-blight --npm --ci
+rot --npm --ci
 ```
 
 ## Install
 
 **Binary:**
 ```bash
-cargo install --git https://github.com/I-XXII-V/Blight
+cargo install --git https://github.com/I-XXII-V/Rot
 ```
 
 
@@ -41,7 +41,7 @@ AUR scanning needs `pacman -Qm`, so it's Arch-only. The rest (Cargo, npm, PyPI, 
 ## Usage
 
 ```text
-blight [OPTIONS] [PACKAGE] [COMMAND]
+rot [OPTIONS] [PACKAGE] [COMMAND]
 
 Commands:
   who-depends  Show crates that depend on a given crate
@@ -68,19 +68,19 @@ Options:
 
 ```bash
 # question your life choices
-blight --cargo
-blight --npm
-blight --pypi
-blight --go
+rot --cargo
+rot --npm
+rot --pypi
+rot --go
 
 # ignore the healthy ones, focus on the dumpster fire
-blight --cargo --stale
+rot --cargo --stale
 
 # make CI fail because someone didn't update their crate since 2021
-blight --go --ci
+rot --go --ci
 
 # see what licenses you're violating
-blight --npm --licenses
+rot --npm --licenses
 ```
 
 With `--stale`, each package explains why it's rotting:
@@ -101,18 +101,18 @@ AUR packages get multiple reasons when needed — including the LastModified fal
 With `--json`, you can pipe it somewhere that makes you look productive:
 
 ```bash
-blight --cargo --json | jq '.summary'
-blight --cargo --json | jq '.packages[] | select(.health == "dead") | .name'
-blight --cargo --stale --json | jq '.packages[].stale_reason'
-blight --json | jq '.summary.hijack'          # AUR: hijack count
+rot --cargo --json | jq '.summary'
+rot --cargo --json | jq '.packages[] | select(.health == "dead") | .name'
+rot --cargo --stale --json | jq '.packages[].stale_reason'
+rot --json | jq '.summary.hijack'          # AUR: hijack count
 ```
 
 ### Single package info
 
 ```bash
-blight yay
-blight neovim
-blight --aur rust-analyzer
+rot yay
+rot neovim
+rot --aur rust-analyzer
 ```
 
 Shows AUR metadata plus GitHub stars, forks, last commit, and archive status. Basically a digital obituary.
@@ -120,8 +120,8 @@ Shows AUR metadata plus GitHub stars, forks, last commit, and archive status. Ba
 ### Reverse dependencies
 
 ```bash
-blight who-depends serde
-blight wd tokio
+rot who-depends serde
+rot wd tokio
 ```
 
 See who else is living dangerously by depending on the same things you do.
@@ -130,18 +130,18 @@ See who else is living dangerously by depending on the same things you do.
 
 ```bash
 # compare current deps against the last commit
-blight diff
+rot diff
 
 # pick an ecosystem explicitly
-blight diff --cargo
+rot diff --cargo
 
 # compare against a specific branch or tag
-blight diff main
-blight diff v1.0
+rot diff main
+rot diff v1.0
 
 # use rev-parse style refs too
-blight diff --npm HEAD~3
-blight diff --go HEAD
+rot diff --npm HEAD~3
+rot diff --go HEAD
 ```
 
 Shows what was **added**, **upgraded**, and **removed** between two points in git history. Only the changed dependencies get health-scored, so you can see whether that upgrade introduced something worse without scrolling past 300 packages that haven't moved.
@@ -150,7 +150,7 @@ Uses `git show` internally — no extra tools, no copy-pasting lockfiles between
 
 ## CVE scanning
 
-Blight checks CVEs via [OSV.dev](https://osv.dev) for each dependency. Supported for Cargo, npm, PyPI, and Go. AUR is skipped — OSV doesn't support it.
+Rot checks CVEs via [OSV.dev](https://osv.dev) for each dependency. Supported for Cargo, npm, PyPI, and Go. AUR is skipped — OSV doesn't support it.
 
 If there's a CVE, you'll see it:
 
@@ -160,7 +160,7 @@ If there's a CVE, you'll see it:
 
 Use `--ci` to exit with code 1 when CVEs are found. Because deploying known vulnerabilities to production is a bold strategy, Cotton. Let's see if it pays off for 'em.
 
-Results are cached in `~/.cache/blight/`. Second scan is faster. First scan is still faster than reading the actual CVE descriptions.
+Results are cached in `~/.cache/rot/`. Second scan is faster. First scan is still faster than reading the actual CVE descriptions.
 
 ## Health scoring
 
@@ -177,7 +177,7 @@ For AUR packages:
 
 This means even without a `GITHUB_TOKEN`, all your AUR packages get scored from the PKGBUILD modification date instead of showing ❓.
 
-Additional AUR signal: if a PKGBUILD was updated recently (< 90 days) but the package is orphaned with low popularity, Blight flags a potential **maintainer takeover / supply-chain hijack** risk (🚩). These show up separately in the summary so they don't get lost in the warning count:
+Additional AUR signal: if a PKGBUILD was updated recently (< 90 days) but the package is orphaned with low popularity, Rot flags a potential **maintainer takeover / supply-chain hijack** risk (🚩). These show up separately in the summary so they don't get lost in the warning count:
 
 ```
 📊 Summary: ✅ 12  ⚠️ 5  🚩 2  🔴 1  🪦 0  ❓ 39

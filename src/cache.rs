@@ -22,7 +22,7 @@ impl Cache {
         } else {
             PathBuf::from("/tmp")
         };
-        let base = base.join("blight");
+        let base = base.join("rot");
         let _ = fs::create_dir_all(&base);
         Self { base }
     }

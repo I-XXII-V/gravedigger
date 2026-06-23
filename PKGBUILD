@@ -1,12 +1,12 @@
-# Maintainer: Blight <https://github.com/I-XXII-V/Blight>
+# Maintainer: Rot <https://github.com/I-XXII-V/Rot>
 # Contributor: I-XXII-V
 
-pkgname=blight
+pkgname=rot
 pkgver=0.2.3
 pkgrel=1
 pkgdesc="CLI tool to check the health of your dependencies across AUR, Cargo, npm, PyPI, and Go"
 arch=('x86_64')
-url="https://github.com/I-XXII-V/Blight"
+url="https://github.com/I-XXII-V/Rot"
 license=('MIT')
 makedepends=('cargo')
 source=("$url/archive/v$pkgver.tar.gz")
@@ -19,7 +19,7 @@ build() {
 
 package() {
     cd "$srcdir/$pkgname-$pkgver"
-    install -Dm755 target/release/blight "$pkgdir/usr/bin/blight"
+    install -Dm755 target/release/rot "$pkgdir/usr/bin/rot"
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
