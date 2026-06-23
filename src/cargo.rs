@@ -66,10 +66,8 @@ fn get_crate_health(data: &CrateData, gh: Option<&GitHubRepo>) -> &'static str {
     }
 
     // Registry says fresh — use cached GitHub data
-    if let Some(gh) = gh {
-        if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
-            return score_from_days(days);
-        }
+    if let Some(gh) = gh && let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+        return score_from_days(days);
     }
 
     "✅"
@@ -353,10 +351,8 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
 
                         let mut extra = String::new();
 
-                        if stale_only {
-                            if let Some(reason) = stale_reason.as_ref() {
-                                extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
-                            }
+                        if stale_only && let Some(reason) = stale_reason.as_ref() {
+                            extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
                         }
 
                         if !vulns.is_empty() {

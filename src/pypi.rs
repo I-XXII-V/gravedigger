@@ -70,10 +70,8 @@ fn extract_github_url(info: &PyPIInfo) -> Option<(String, String)> {
             }
         }
     }
-    if let Some(ref url) = info.home_page {
-        if let Some(gh) = parse_github_repo(url) {
-            return Some(gh);
-        }
+    if let Some(ref url) = info.home_page && let Some(gh) = parse_github_repo(url) {
+        return Some(gh);
     }
     None
 }
@@ -142,10 +140,8 @@ fn get_pypi_health(_info: &PyPIInfo, urls: &[PyPIUrl], gh: Option<&GitHubRepo>) 
     }
 
     // PyPI says fresh — check cached GitHub data
-    if let Some(gh) = gh {
-        if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
-            return score_from_days(days);
-        }
+    if let Some(gh) = gh && let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+        return score_from_days(days);
     }
 
     "✅"
@@ -161,35 +157,33 @@ fn get_pypi_health(_info: &PyPIInfo, urls: &[PyPIUrl], gh: Option<&GitHubRepo>) 
 /// `gh` is an optional cached `GitHubRepo`.  When the PyPI check does
 /// not find staleness but `gh` is `None`, we return `None`.
 fn get_pypi_stale_reason(_info: &PyPIInfo, urls: &[PyPIUrl], gh: Option<&GitHubRepo>) -> Option<String> {
-    if let Some(url) = urls.first() {
-        if let Some(ref upload_time) = url.upload_time {
-            let clean = upload_time.trim_end_matches('Z');
-            if let Some(days) = days_since_date_prefix(clean) {
-                if days > 730 {
-                    return Some(format!("No release on PyPI in {} days — DEAD", days));
-                }
-                if days > 365 {
-                    return Some(format!("No release on PyPI in {} days — INACTIVE", days));
-                }
-                if days > 180 {
-                    return Some(format!("No release on PyPI in {} days — STALE", days));
-                }
+    if let Some(url) = urls.first()
+        && let Some(ref upload_time) = url.upload_time
+    {
+        let clean = upload_time.trim_end_matches('Z');
+        if let Some(days) = days_since_date_prefix(clean) {
+            if days > 730 {
+                return Some(format!("No release on PyPI in {} days — DEAD", days));
+            }
+            if days > 365 {
+                return Some(format!("No release on PyPI in {} days — INACTIVE", days));
+            }
+            if days > 180 {
+                return Some(format!("No release on PyPI in {} days — STALE", days));
             }
         }
     }
 
     // PyPI is healthy — check cached GitHub data
-    if let Some(gh) = gh {
-        if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
-            if days > 730 {
-                return Some(format!("No GitHub activity in {} days — DEAD", days));
-            }
-            if days > 365 {
-                return Some(format!("No GitHub activity in {} days — INACTIVE", days));
-            }
-            if days > 180 {
-                return Some(format!("No GitHub activity in {} days — STALE", days));
-            }
+    if let Some(gh) = gh && let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+        if days > 730 {
+            return Some(format!("No GitHub activity in {} days — DEAD", days));
+        }
+        if days > 365 {
+            return Some(format!("No GitHub activity in {} days — INACTIVE", days));
+        }
+        if days > 180 {
+            return Some(format!("No GitHub activity in {} days — STALE", days));
         }
         return None;
     }
@@ -377,10 +371,8 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
 
                     let mut extra = String::new();
 
-                    if stale_only {
-                        if let Some(reason) = stale_reason.as_ref() {
-                            extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
-                        }
+                    if stale_only && let Some(reason) = stale_reason.as_ref() {
+                        extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
                     }
 
                     if !vulns.is_empty() {

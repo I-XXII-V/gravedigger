@@ -83,14 +83,12 @@ pub fn get_health(pkg: &AurPackage, gh: Option<&GitHubRepo>) -> &'static str {
     }
 
     // 3) No cached data — fetch GitHub ourselves
-    if let Some(url) = &pkg.url {
-        if let Some((owner, repo)) = parse_github_repo(url) {
-            if let Ok(gh) = fetch_github_info(&owner, &repo) {
-                if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
-                    return score_from_days(days);
-                }
-            }
-        }
+    if let Some(url) = &pkg.url
+        && let Some((owner, repo)) = parse_github_repo(url)
+        && let Ok(gh) = fetch_github_info(&owner, &repo)
+        && let Some(days) = days_since_date_prefix(&gh.pushed_at)
+    {
+        return score_from_days(days);
     }
 
     // 4) Fallback: AUR LastModified

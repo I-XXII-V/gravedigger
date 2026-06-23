@@ -202,10 +202,8 @@ fn get_npm_health(data: &NpmRegistryResponse, gh: Option<&GitHubRepo>) -> &'stat
     }
 
     // Registry says fresh (✅) — use cached GitHub data for finer score
-    if let Some(gh) = gh {
-        if let Some(days) = days_since_date_prefix(&gh.pushed_at) {
-            return score_from_days(days);
-        }
+    if let Some(gh) = gh && let Some(days) = days_since_date_prefix(&gh.pushed_at) {
+        return score_from_days(days);
     }
 
     "✅"
@@ -223,17 +221,17 @@ fn get_npm_health(data: &NpmRegistryResponse, gh: Option<&GitHubRepo>) -> &'stat
 /// (the absence of a GitHub repo is not a health problem).
 fn get_npm_stale_reason(data: &NpmRegistryResponse, gh: Option<&GitHubRepo>) -> Option<String> {
     // 1) Check npm registry modified date
-    if let Some(modified) = data.time.get("modified") {
-        if let Some(days) = days_since_date_prefix(modified) {
-            if days > 730 {
-                return Some(format!("No update on npm in {} days — DEAD", days));
-            }
-            if days > 365 {
-                return Some(format!("No update on npm in {} days — INACTIVE", days));
-            }
-            if days > 180 {
-                return Some(format!("No update on npm in {} days — STALE", days));
-            }
+    if let Some(modified) = data.time.get("modified")
+        && let Some(days) = days_since_date_prefix(modified)
+    {
+        if days > 730 {
+            return Some(format!("No update on npm in {} days — DEAD", days));
+        }
+        if days > 365 {
+            return Some(format!("No update on npm in {} days — INACTIVE", days));
+        }
+        if days > 180 {
+            return Some(format!("No update on npm in {} days — STALE", days));
         }
     }
 
@@ -591,10 +589,8 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
 
                     let mut extra = String::new();
 
-                    if stale_only {
-                        if let Some(reason) = stale_reason.as_ref() {
-                            extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
-                        }
+                    if stale_only && let Some(reason) = stale_reason.as_ref() {
+                        extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
                     }
 
                     // Show provenance status (always, so user can see both verified and missing)

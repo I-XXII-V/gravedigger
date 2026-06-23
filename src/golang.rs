@@ -335,10 +335,8 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, licenses: boo
                         extra.push_str(&format!("\n   \x1b[33m└─ 🚩 {}\x1b[0m", reason));
                     }
 
-                    if stale_only {
-                        if let Some(reason) = stale_reason_raw.as_ref() {
-                            extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
-                        }
+                    if stale_only && let Some(reason) = stale_reason_raw.as_ref() {
+                        extra.push_str(&format!("\n   \x1b[90m└─ {}\x1b[0m", reason));
                     }
 
                     if !vulns.is_empty() {

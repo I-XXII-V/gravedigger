@@ -65,10 +65,10 @@ pub fn query_package(ecosystem: &str, name: &str, version: &str) -> Vec<VulnInfo
     let cache = cache::init();
 
     // Check cache first
-    if let Some(cached) = cache.get("osv", &cache_key, 6) {
-        if let Ok(vulns) = serde_json::from_str::<Vec<VulnInfo>>(&cached) {
-            return vulns;
-        }
+    if let Some(cached) = cache.get("osv", &cache_key, 6)
+        && let Ok(vulns) = serde_json::from_str::<Vec<VulnInfo>>(&cached)
+    {
+        return vulns;
     }
 
     // Query OSV API

@@ -184,10 +184,8 @@ pub fn print_summary(
         );
     }
 
-    if licenses_flag {
-        if let Some(map) = licenses_map {
-            print_license_summary(map);
-        }
+    if licenses_flag && let Some(map) = licenses_map {
+        print_license_summary(map);
     }
 
     if ci && (summary.dead > 0 || summary.cves > 0) {
