@@ -250,11 +250,11 @@ pub(crate) fn scan_single(name: &str, version: &str) -> PackageResult {
 
 // ── Public entry point ───────────────────────────────────────────────
 
-pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool, verbose: bool) {
+pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool, verbose: bool, sbom: bool) {
     let deps = if fs::metadata("poetry.lock").is_ok() {
         match parse_poetry_lock("poetry.lock") {
             Ok(d) => {
-                if !output_json {
+                if !output_json && !sbom {
                     println!("📦 Found poetry.lock");
                 }
                 d
@@ -267,7 +267,7 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
     } else if fs::metadata("Pipfile.lock").is_ok() {
         match parse_pipfile_lock("Pipfile.lock") {
             Ok(d) => {
-                if !output_json {
+                if !output_json && !sbom {
                     println!("📦 Found Pipfile.lock");
                 }
                 d
@@ -296,7 +296,7 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
         return;
     }
 
-    if !output_json {
+    if !output_json && !sbom {
         println!("📦 Scanning {} Python packages from lockfile\n", deps.len());
     }
 
@@ -352,7 +352,7 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
                         return;
                     }
 
-                    if output_json {
+                    if output_json || sbom {
                         let mut r = results.lock().expect("results mutex poisoned");
                         r.push(PackageResult {
                             name: pkg_name.clone(),
@@ -360,11 +360,13 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
                             health: health_to_string(health),
                             description: resp.info.summary.clone(),
                             latest_version: Some(resp.info.version.clone()),
-                            stale_reason,
-                                vulns: vulns.clone(),
-                                provenance: None,
-                            });
-                        return;
+                            stale_reason: stale_reason.clone(),
+                            vulns: vulns.clone(),
+                            provenance: None,
+                        });
+                        if output_json {
+                            return;
+                        }
                     }
 
                     let desc = resp.info.summary.as_deref().unwrap_or("").to_string();
@@ -442,21 +444,22 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
                         line,
                     });
                 }
-                Err(e) => {
-                    count_unknown.fetch_add(1, Ordering::Relaxed);
-                    if output_json {
-                        let mut r = results.lock().expect("results mutex poisoned");
-                        r.push(PackageResult {
-                            name: pkg_name.clone(),
-                            version: pkg_version.clone(),
-                            health: "unknown".to_string(),
-                            description: None,
-                            latest_version: None,
-                            stale_reason: Some(e.clone()),
-                                vulns: vec![],
-                                provenance: None,
-                            });
-                    } else if !stale_only {
+                    Err(e) => {
+                        count_unknown.fetch_add(1, Ordering::Relaxed);
+                        if output_json || sbom {
+                            let mut r = results.lock().expect("results mutex poisoned");
+                            r.push(PackageResult {
+                                name: pkg_name.clone(),
+                                version: pkg_version.clone(),
+                                health: "unknown".to_string(),
+                                description: None,
+                                latest_version: None,
+                                stale_reason: Some(e.clone()),
+                                    vulns: vec![],
+                                    provenance: None,
+                                });
+                        }
+                        if !output_json && !sbom && !stale_only {
                         let line = format!(
                             "\x1b[90m❓ {} v{} — fetch failed: {}\x1b[0m",
                             pkg_name, pkg_version, e
@@ -479,7 +482,7 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
     let u = count_unknown.load(Ordering::Relaxed);
     let c = count_cves.load(Ordering::Relaxed);
 
-    if !output_json {
+    if !output_json && !sbom {
         let mut entries = text_lines.lock().expect("text_lines mutex poisoned");
         let mut taken: Vec<DisplayEntry> = std::mem::take(&mut *entries);
         taken.sort_by_key(|e| health_sort_key(&e.health_emoji));
@@ -503,6 +506,11 @@ pub fn scan_pypi_deps(stale_only: bool, output_json: bool, ci: bool, licenses: b
     }
 
     let packages = collect_results(results);
+
+    if sbom {
+        crate::sbom::render("pypi", &packages);
+        return;
+    }
 
     print_summary(
         "pypi",

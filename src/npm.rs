@@ -438,7 +438,7 @@ pub(crate) fn scan_single(name: &str, version: &str) -> PackageResult {
 
 // ── Public entry point ───────────────────────────────────────────────
 
-pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool, verbose: bool) {
+pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool, verbose: bool, sbom: bool) {
     let lock_path = "package-lock.json";
 
     if fs::metadata(lock_path).is_err() {
@@ -478,7 +478,7 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
         return;
     }
 
-    if !output_json {
+    if !output_json && !sbom {
         println!(
             "📦 Scanning {} npm packages from package-lock.json\n",
             deps.len()
@@ -557,7 +557,7 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                     // Check npm provenance attestation (cached, always returns a string)
                     let provenance = fetch_npm_attestation(&pkg_name, &pkg_version);
 
-                    if output_json {
+                    if output_json || sbom {
                         let mut r = results.lock().expect("results mutex poisoned");
                         r.push(PackageResult {
                             name: pkg_name.clone(),
@@ -565,11 +565,13 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                             health: health_to_string(health),
                             description: reg.description.clone(),
                             latest_version: reg.dist_tags.get("latest").cloned(),
-                            stale_reason,
+                            stale_reason: stale_reason.clone(),
                             vulns: vulns.clone(),
                             provenance: Some(provenance.clone()),
                         });
-                        return;
+                        if output_json {
+                            return;
+                        }
                     }
 
                     let desc = reg
@@ -665,9 +667,9 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                         line,
                     });
                 }
-                Err(e) => {
+                    Err(e) => {
                     count_unknown.fetch_add(1, Ordering::Relaxed);
-                    if output_json {
+                    if output_json || sbom {
                         let mut r = results.lock().expect("results mutex poisoned");
                         r.push(PackageResult {
                             name: pkg_name.clone(),
@@ -679,7 +681,8 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
                                 vulns: vec![],
                                 provenance: None,
                             });
-                    } else if !stale_only {
+                    }
+                    if !output_json && !sbom && !stale_only {
                         let line = format!(
                             "\x1b[90m❓ {} v{} — fetch failed: {}\x1b[0m",
                             pkg_name, pkg_version, e
@@ -702,7 +705,7 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
     let u = count_unknown.load(Ordering::Relaxed);
     let c = count_cves.load(Ordering::Relaxed);
 
-    if !output_json {
+    if !output_json && !sbom {
         let mut entries = text_lines.lock().expect("text_lines mutex poisoned");
         let mut taken: Vec<DisplayEntry> = std::mem::take(&mut *entries);
         taken.sort_by_key(|e| health_sort_key(&e.health_emoji));
@@ -726,6 +729,11 @@ pub fn scan_npm_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bo
     }
 
     let packages = collect_results(results);
+
+    if sbom {
+        crate::sbom::render("npm", &packages);
+        return;
+    }
 
     print_summary(
         "npm",

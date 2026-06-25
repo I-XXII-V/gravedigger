@@ -8,6 +8,7 @@ mod golang;
 mod npm;
 mod osv;
 mod pypi;
+mod sbom;
 mod types;
 
 use crate::display::*;
@@ -76,6 +77,10 @@ struct Cli {
     /// Show fetch errors and unknown packages
     #[arg(short = 'v', long = "verbose")]
     verbose: bool,
+
+    /// Output CycloneDX 1.6 SBOM JSON
+    #[arg(long = "sbom")]
+    sbom: bool,
 
     /// Show detailed health info for an AUR package
     package: Option<String>,
@@ -150,19 +155,19 @@ fn main() {
 
     // Ecosystem scan flags
     if cli.cargo {
-        cargo::scan_cargo_deps(cli.stale, cli.json, cli.ci, cli.licenses, cli.verbose);
+        cargo::scan_cargo_deps(cli.stale, cli.json, cli.ci, cli.licenses, cli.verbose, cli.sbom);
         return;
     }
     if cli.npm {
-        npm::scan_npm_deps(cli.stale, cli.json, cli.ci, cli.licenses, cli.verbose);
+        npm::scan_npm_deps(cli.stale, cli.json, cli.ci, cli.licenses, cli.verbose, cli.sbom);
         return;
     }
     if cli.pypi {
-        pypi::scan_pypi_deps(cli.stale, cli.json, cli.ci, cli.licenses, cli.verbose);
+        pypi::scan_pypi_deps(cli.stale, cli.json, cli.ci, cli.licenses, cli.verbose, cli.sbom);
         return;
     }
     if cli.go {
-        golang::scan_go_deps(cli.stale, cli.json, cli.ci, cli.licenses, cli.verbose);
+        golang::scan_go_deps(cli.stale, cli.json, cli.ci, cli.licenses, cli.verbose, cli.sbom);
         return;
     }
 

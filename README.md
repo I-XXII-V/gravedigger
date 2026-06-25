@@ -60,6 +60,7 @@ Options:
   -s, --stale         Only show packages that should worry you
       --ci            Exit 1 if any dep is dead or has CVEs
       --licenses      Show license breakdown (you probably don't care until legal asks)
+      --sbom          Output CycloneDX 1.6 SBOM JSON
   -h, --help          Print help
   -V, --version       Print version
 ```
@@ -81,6 +82,12 @@ gravedigger --go --ci
 
 # see what licenses you're violating
 gravedigger --npm --licenses
+
+# generate a CycloneDX 1.6 SBOM with CVE data
+gravedigger --cargo --sbom | jq '.vulnerabilities'
+
+# pipe to tools like grype, trivy, or dependency-track
+gravedigger --npm --sbom > sbom.json
 ```
 
 With `--stale`, each package explains why it's rotting:
@@ -161,6 +168,22 @@ If there's a CVE, you'll see it:
 Use `--ci` to exit with code 1 when CVEs are found. Because deploying known vulnerabilities to production is a bold strategy, Cotton. Let's see if it pays off for 'em.
 
 Results are cached in `~/.cache/gravedigger/`. Second scan is faster. First scan is still faster than reading the actual CVE descriptions.
+
+## SBOM output
+
+Generate a [CycloneDX](https://cyclonedx.org) 1.6 JSON SBOM with `--sbom`:
+
+```bash
+gravedigger --cargo --sbom
+gravedigger --npm --sbom | jq '.vulnerabilities'
+gravedigger --go --sbom > sbom.json
+```
+
+Each package becomes a `component` with its PURL, health status, and stale reason. Known CVEs from OSV become `vulnerabilities` with severity ratings. Compatible with tools like [Grype](https://github.com/anchore/grype), [Trivy](https://github.com/aquasecurity/trivy), and [Dependency-Track](https://dependencytrack.org/).
+
+Combine with `--stale` to limit the SBOM to only packages that need attention.
+
+AUR scanning is not supported with `--sbom` — there's no lockfile to produce an SBOM from.
 
 ## Health scoring
 

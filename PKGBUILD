@@ -2,7 +2,7 @@
 # Contributor: I-XXII-V
 
 pkgname=gravedigger
-pkgver=0.1.1
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="CLI tool to check the health of your dependencies across AUR, Cargo, npm, PyPI, and Go"
 arch=('x86_64')

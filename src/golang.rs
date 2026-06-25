@@ -217,7 +217,7 @@ pub(crate) fn scan_single(name: &str, version: &str) -> PackageResult {
 
 // ── Public entry point ───────────────────────────────────────────────
 
-pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool, verbose: bool) {
+pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool, verbose: bool, sbom: bool) {
     if fs::metadata("go.mod").is_err() {
         eprintln!("❌ go.mod not found in current directory");
         return;
@@ -249,7 +249,7 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, licenses: boo
         return;
     }
 
-    if !output_json {
+    if !output_json && !sbom {
         println!("📦 Scanning {} Go modules from go.mod\n", deps.len());
     }
 
@@ -310,8 +310,8 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, licenses: boo
                     // Stale reason uses cached gh_ref — no second GitHub call
                     let stale_reason_raw = get_go_stale_reason(&proxy, gh_ref);
 
-                    if output_json {
-                        let sr = hijack.clone().or(stale_reason_raw);
+                    if output_json || sbom {
+                        let sr = hijack.clone().or(stale_reason_raw.clone());
                         let mut r = results.lock().expect("results mutex poisoned");
                         r.push(PackageResult {
                             name: mod_name.clone(),
@@ -320,10 +320,12 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, licenses: boo
                             description: None,
                             latest_version: Some(proxy.Version.trim_start_matches('v').to_string()),
                             stale_reason: sr,
-                                vulns: vulns.clone(),
-                                provenance: None,
-                            });
-                        return;
+                            vulns: vulns.clone(),
+                            provenance: None,
+                        });
+                        if output_json {
+                            return;
+                        }
                     }
 
                     let latest = proxy.Version.trim_start_matches('v');
@@ -399,21 +401,22 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, licenses: boo
                         line,
                     });
                 }
-                Err(e) => {
-                    count_unknown.fetch_add(1, Ordering::Relaxed);
-                    if output_json {
-                        let mut r = results.lock().expect("results mutex poisoned");
-                        r.push(PackageResult {
-                            name: mod_name.clone(),
-                            version: mod_version.clone(),
-                            health: "unknown".to_string(),
-                            description: None,
-                            latest_version: None,
-                            stale_reason: Some(e.clone()),
-                                vulns: vec![],
-                                provenance: None,
-                            });
-                    } else if !stale_only {
+                    Err(e) => {
+                        count_unknown.fetch_add(1, Ordering::Relaxed);
+                        if output_json || sbom {
+                            let mut r = results.lock().expect("results mutex poisoned");
+                            r.push(PackageResult {
+                                name: mod_name.clone(),
+                                version: mod_version.clone(),
+                                health: "unknown".to_string(),
+                                description: None,
+                                latest_version: None,
+                                stale_reason: Some(e.clone()),
+                                    vulns: vec![],
+                                    provenance: None,
+                                });
+                        }
+                        if !output_json && !sbom && !stale_only {
                         let line = format!(
                             "\x1b[90m❓ {} v{} — fetch failed: {}\x1b[0m",
                             mod_name, mod_version, e
@@ -437,7 +440,7 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, licenses: boo
     let u = count_unknown.load(Ordering::Relaxed);
     let c = count_cves.load(Ordering::Relaxed);
 
-    if !output_json {
+    if !output_json && !sbom {
         let mut entries = text_lines.lock().expect("text_lines mutex poisoned");
         let mut taken: Vec<DisplayEntry> = std::mem::take(&mut *entries);
         taken.sort_by_key(|e| health_sort_key(&e.health_emoji));
@@ -461,6 +464,11 @@ pub fn scan_go_deps(stale_only: bool, output_json: bool, ci: bool, licenses: boo
     }
 
     let packages = collect_results(results);
+
+    if sbom {
+        crate::sbom::render("go", &packages);
+        return;
+    }
 
     print_summary(
         "go",

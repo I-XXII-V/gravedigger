@@ -205,7 +205,7 @@ pub(crate) fn scan_single(name: &str, version: &str) -> PackageResult {
 
 // ── Public entry point ───────────────────────────────────────────────
 
-pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool, verbose: bool) {
+pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: bool, verbose: bool, sbom: bool) {
     let lock_path = "Cargo.lock";
 
     if fs::metadata(lock_path).is_err() {
@@ -243,7 +243,7 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
         return;
     }
 
-    if !output_json {
+    if !output_json && !sbom {
         println!(
             "📦 Scanning {} crate dependencies from Cargo.lock\n",
             registry_deps.len()
@@ -322,8 +322,8 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
                             return;
                         }
 
-                        // JSON output
-                        if output_json {
+                        // JSON or SBOM output — populate results
+                        if output_json || sbom {
                             let mut r = results.lock().expect("results mutex poisoned");
                             r.push(PackageResult {
                                 name: name.clone(),
@@ -331,11 +331,13 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
                                 health: health_to_string(health),
                                 description: data.description.clone(),
                                 latest_version: Some(data.max_stable_version.clone()),
-                                stale_reason,
+                                stale_reason: stale_reason.clone(),
                                 vulns: vulns.clone(),
                                 provenance: None,
                             });
-                            return;
+                            if output_json {
+                                return;
+                            }
                         }
 
                         // Text output
@@ -417,7 +419,7 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
                     }
                     Err(e) => {
                         count_unknown.fetch_add(1, Ordering::Relaxed);
-                        if output_json {
+                        if output_json || sbom {
                             let mut r = results.lock().expect("results mutex poisoned");
                             r.push(PackageResult {
                                 name: name.clone(),
@@ -429,7 +431,8 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
                                 vulns: vec![],
                                 provenance: None,
                             });
-                        } else if !stale_only {
+                        }
+                        if !output_json && !sbom && !stale_only {
                             let line = format!(
                                 "\x1b[90m❓ {} v{} — fetch failed: {}\x1b[0m",
                                 name, version, e
@@ -453,7 +456,7 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
     let u = count_unknown.load(Ordering::Relaxed);
     let c = count_cves.load(Ordering::Relaxed);
 
-    if !output_json {
+    if !output_json && !sbom {
         let mut entries = text_lines.lock().expect("text_lines mutex poisoned");
         let mut taken: Vec<DisplayEntry> = std::mem::take(&mut *entries);
         taken.sort_by_key(|e| health_sort_key(&e.health_emoji));
@@ -477,6 +480,11 @@ pub fn scan_cargo_deps(stale_only: bool, output_json: bool, ci: bool, licenses: 
     }
 
     let packages = collect_results(results);
+
+    if sbom {
+        crate::sbom::render("cargo", &packages);
+        return;
+    }
 
     print_summary(
         "cargo",
