@@ -16,6 +16,7 @@ const YELLOW: &str = "\x1b[33m";
 const RED: &str = "\x1b[31m";
 const GRAY: &str = "\x1b[90m";
 const RESET: &str = "\x1b[0m";
+const MAX_LIST_ITEMS: usize = 10;
 
 // ── Raw deserialisation structs ──────────────────────────────────────
 
@@ -234,6 +235,13 @@ fn compute_diff(
 
 // ── Display ──────────────────────────────────────────────────────────
 
+/// Print "… and N more" if items exceed MAX_LIST_ITEMS.
+fn print_more(count: usize) {
+    if count > MAX_LIST_ITEMS {
+        println!("  {}… and {} more{}", GRAY, count - MAX_LIST_ITEMS, RESET);
+    }
+}
+
 fn health_emoji(health: &str) -> &'static str {
     match health {
         "healthy" => "✅",
@@ -281,7 +289,7 @@ fn print_component_delta(deltas: &[ComponentDelta]) {
     if !added_items.is_empty() {
         println!();
         println!("── Added ──────────────────────────────");
-        for c in &added_items {
+        for c in added_items.iter().take(MAX_LIST_ITEMS) {
             println!(
                 "  {}{} {} v{} — {}{}",
                 health_color(&c.health),
@@ -292,6 +300,7 @@ fn print_component_delta(deltas: &[ComponentDelta]) {
                 RESET,
             );
         }
+        print_more(added_items.len());
     }
 
     // Print changed components
@@ -301,7 +310,7 @@ fn print_component_delta(deltas: &[ComponentDelta]) {
     if !changed_items.is_empty() {
         println!();
         println!("── Changed ────────────────────────────");
-        for (old, new) in &changed_items {
+        for (old, new) in changed_items.iter().take(MAX_LIST_ITEMS) {
             println!(
                 "  {}⚠️ {} v{} {}→{} v{} — {}{}",
                 YELLOW,
@@ -314,6 +323,7 @@ fn print_component_delta(deltas: &[ComponentDelta]) {
                 RESET,
             );
         }
+        print_more(changed_items.len());
     }
 
     // Print removed components
@@ -323,7 +333,7 @@ fn print_component_delta(deltas: &[ComponentDelta]) {
     if !removed_items.is_empty() {
         println!();
         println!("── Removed ────────────────────────────");
-        for c in &removed_items {
+        for c in removed_items.iter().take(MAX_LIST_ITEMS) {
             println!(
                 "  {}{} {} v{} — {}{}",
                 RED,
@@ -334,6 +344,7 @@ fn print_component_delta(deltas: &[ComponentDelta]) {
                 RESET,
             );
         }
+        print_more(removed_items.len());
     }
 }
 
@@ -356,7 +367,7 @@ fn print_vuln_delta(deltas: &[VulnDelta]) {
     if !new_items.is_empty() {
         println!();
         println!("── New CVEs ───────────────────────────");
-        for v in &new_items {
+        for v in new_items.iter().take(MAX_LIST_ITEMS) {
             let desc_short = if v.description.len() > 60 {
                 format!("{}…", &v.description[..57])
             } else {
@@ -374,6 +385,7 @@ fn print_vuln_delta(deltas: &[VulnDelta]) {
                 println!("     affects: {}", v.purl);
             }
         }
+        print_more(new_items.len());
     }
 
     // Resolved CVEs
@@ -383,9 +395,10 @@ fn print_vuln_delta(deltas: &[VulnDelta]) {
     if !resolved_items.is_empty() {
         println!();
         println!("── Resolved CVEs ──────────────────────");
-        for v in &resolved_items {
+        for v in resolved_items.iter().take(MAX_LIST_ITEMS) {
             println!("  {}✅ {} — No longer present{}", GREEN, v.id, RESET);
         }
+        print_more(resolved_items.len());
     }
 }
 
