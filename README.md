@@ -1,7 +1,7 @@
 # Gravedigger
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/I-XXII-V/Gravedigger/rust.yml?branch=main)](https://github.com/I-XXII-V/Gravedigger/actions)
+[![Crates.io](https://img.shields.io/crates/v/gravedigger)](https://crates.io/crates/gravedigger)
 
 
 ```bash
@@ -29,9 +29,14 @@ gravedigger --npm --ci
 
 ## Install
 
-**Binary:**
+**crates.io:**
 ```bash
-cargo install --git https://github.com/I-XXII-V/Gravedigger
+cargo install gravedigger
+```
+
+**From source:**
+```bash
+cargo install --git https://github.com/I-XXII-V/gravedigger
 ```
 
 
